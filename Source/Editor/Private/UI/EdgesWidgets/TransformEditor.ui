@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+    <author/>
+    <comment/>
+    <exportmacro/>
+    <class>TransformEditor</class>
+    <widget class="QWidget" name="TransformEditor">
+        <property name="geometry">
+            <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>400</width>
+                <height>300</height>
+            </rect>
+        </property>
+        <property name="windowTitle">
+            <string>TransformEditor</string>
+        </property>
+        <layout class="QGridLayout" name="gridLayout">
+            <item row="0" column="0">
+                <widget class="QLabel" name="labelTranslation">
+                    <property name="text">
+                        <string>Translation:</string>
+                    </property>
+                </widget>
+            </item>
+            <item row="0" column="1">
+                <widget class="QLineEdit" name="lineEditTranslationX"/>
+            </item>
+            <item row="0" column="2">
+                <widget class="QLineEdit" name="lineEditTranslationY"/>
+            </item>
+            <item row="0" column="3">
+                <widget class="QLineEdit" name="lineEditTranslationZ"/>
+            </item>
+            <item row="1" column="0">
+                <widget class="QLabel" name="labelRotation">
+                    <property name="text">
+                        <string>Rotation:</string>
+                    </property>
+                </widget>
+            </item>
+            <item row="1" column="1">
+                <widget class="QLineEdit" name="lineEditRotationX"/>
+            </item>
+            <item row="1" column="2">
+                <widget class="QLineEdit" name="lineEditRotationY"/>
+            </item>
+            <item row="1" column="3">
+                <widget class="QLineEdit" name="lineEditRotationZ"/>
+            </item>
+            <item row="2" column="0">
+                <widget class="QLabel" name="labelScale">
+                    <property name="text">
+                        <string>Scale:</string>
+                    </property>
+                </widget>
+            </item>
+            <item row="2" column="1">
+                <widget class="QLineEdit" name="lineEditScaleX"/>
+            </item>
+            <item row="2" column="2">
+                <widget class="QLineEdit" name="lineEditScaleY"/>
+            </item>
+            <item row="2" column="3">
+                <widget class="QLineEdit" name="lineEditScaleZ"/>
+            </item>
+        </layout>
+    </widget>
+    <pixmapfunction/>
+    <connections/>
+</ui>
