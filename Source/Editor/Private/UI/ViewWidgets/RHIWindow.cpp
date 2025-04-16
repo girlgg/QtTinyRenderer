@@ -5,7 +5,7 @@
 
 #include "UI/ViewWidgets/RHIWindow.h"
 #include "Graphics/RasterizeRenderSystem.h"
-#include "Scene/InputSystem.h"
+#include "System/InputSystem.h"
 
 RHIWindow::RHIWindow(RhiHelper::InitParams inInitParmas)
     : mInitParams(inInitParmas) {

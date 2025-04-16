@@ -4,12 +4,9 @@
 
 struct TransformComponent;
 
-struct CameraControllerComponent : public Component {
-public:
-    void update(float deltaTime, TransformComponent *transform);
-
-    float mMoveSpeed;
-    float mRotateSpeed;
+struct CameraControllerComponent : Component {
+    float mMoveSpeed = 0.01f;
+    float mRotateSpeed = 1.f;
 
     float mYaw = 0.0f;
     float mPitch = 0.0f;

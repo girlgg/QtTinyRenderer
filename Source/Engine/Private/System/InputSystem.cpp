@@ -1,4 +1,4 @@
-#include "Scene/InputSystem.h"
+#include "System/InputSystem.h"
 
 #include <kernel/qevent.h>
 #include <QtWidgets/QApplication>

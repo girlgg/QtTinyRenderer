@@ -1,10 +1,11 @@
 #include "Graphics/RasterizeRenderSystem.h"
 
+#include "Component/CameraComponent.h"
 #include "Component/LightComponent.h"
 #include "Component/MaterialComponent.h"
 #include "Component/RenderableComponent.h"
+#include "Component/TransformComponent.h"
 #include "Resources/ResourceManager.h"
-#include "Scene/SceneManager.h"
 #include "Scene/World.h"
 
 RasterizeRenderSystem::RasterizeRenderSystem() {
@@ -30,8 +31,6 @@ void RasterizeRenderSystem::initialize(QRhi *rhi, QRhiSwapChain *swapChain, QRhi
 
     mOutputSize = swapChain->currentPixelSize();
 
-    qInfo() << "Initializing RasterizeRenderSystem...";
-
     quint32 alignment = mRhi->ubufAlignment();
     mInstanceBlockAlignedSize = sizeof(InstanceUniformBlock);
     if (mInstanceBlockAlignedSize % alignment != 0) {
@@ -41,37 +40,31 @@ void RasterizeRenderSystem::initialize(QRhi *rhi, QRhiSwapChain *swapChain, QRhi
             << "Aligned size:" << mInstanceBlockAlignedSize
             << "Alignment requirement:" << alignment;
 
-    createGlobalResources(); // Set 0: Camera/Light UBOs, Sampler, Global SRB
-    createInstanceResources(); // Set 2: Instance UBO + CPU buffer
-    createPipelines(); // Defines pipeline expecting Sets 0, 1, 2
+    // 初始化 Camera/Light UBOs, Sampler, Global SRB
+    createGlobalResources();
+    // 初始化 UBO + CPU buffer
+    createInstanceResources();
+    createPipelines();
 
     findActiveCamera();
 
     if (!mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID)) {
-        qInfo() << "Loading built-in cube mesh data...";
         mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID,
                                            DEFAULT_CUBE_VERTICES,
                                            DEFAULT_CUBE_INDICES);
-        // Mark it as needing upload
         RhiMeshGpuData *meshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
         if (meshGpu) meshGpu->ready = false;
     }
-
-    qInfo() << "RasterizeRenderSystem initialized successfully.";
 }
 
 void RasterizeRenderSystem::releaseResources() {
-    qInfo() << "Releasing RasterizeRenderSystem resources...";
-    // Release in reverse order of creation potentially
-    // releasePipelines();
-    // releaseInstanceResources();
-    // releaseGlobalResources();
+    releasePipelines();
+    releaseInstanceResources();
+    releaseGlobalResources();
 
-    // Clear caches
     mMaterialBindingsCache.clear();
     mInstanceBindingsCache.clear();
 
-    // Invalidate pointers (important if this object outlives the RHI context somehow)
     mRhi = nullptr;
     mSwapChain = nullptr;
     mSwapChainPassDesc = nullptr;
@@ -79,17 +72,26 @@ void RasterizeRenderSystem::releaseResources() {
     mResourceManager.reset();
 }
 
+void RasterizeRenderSystem::releasePipelines() {
+    mPipelineSrbLayoutDef.clear();
+    mBasePipeline.clear();
+}
+
 void RasterizeRenderSystem::releaseInstanceResources() {
     mInstanceUbo.reset();
-    mInstanceDataBuffer.clear(); // Release CPU memory
+    mInstanceDataBuffer.clear();
+}
+
+void RasterizeRenderSystem::releaseGlobalResources() {
+    mLightingUbo.reset();
+    mCameraUbo.reset();
+    mDefaultSampler.reset();
+    mGlobalBindings.reset();
 }
 
 void RasterizeRenderSystem::resize(QSize size) {
     if (size.isValid()) {
         mOutputSize = size;
-        qInfo() << "RasterizeRenderSystem resized to" << size;
-        // Note: Camera aspect ratio update is handled externally (e.g., in ViewWindow)
-        // by getting the camera component and setting its aspect ratio.
     }
 }
 
@@ -99,28 +101,25 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
         return;
     }
 
-    // Get the cube mesh (should be ready after submitResourceUpdates)
+    // 获取 cube mesh (必须在submitResourceUpdates之后)
     RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
     if (!cubeMeshGpu || !cubeMeshGpu->ready) {
         qWarning() << "Cube mesh data not ready for drawing.";
-        return; // Cannot draw
+        return;
     }
 
-    // --- Setup Common State ---
+    // --- 通用状态 ---
     cmdBuffer->setGraphicsPipeline(mBasePipeline.get());
     cmdBuffer->setViewport({0, 0, (float) mOutputSize.width(), (float) mOutputSize.height()});
 
-    // Bind Set 0 SRB (Global UBOs) - Once
-    // cmdBuffer->setShaderResources(mGlobalBindings.get());
-
-    // Bind Cube Vertex/Index Buffers - Once
+    // -- Vertex/Index Buffers --
     QRhiCommandBuffer::VertexInput vtxBinding(cubeMeshGpu->vertexBuffer.get(), 0);
     cmdBuffer->setVertexInput(0, 1, &vtxBinding, cubeMeshGpu->indexBuffer.get(), 0, QRhiCommandBuffer::IndexUInt16);
 
-    // --- Draw Loop ---
-    int currentInstanceIndex = 0; // Keep track of which instance slot we are using
+    // --- Draw ---
+    int currentInstanceIndex = 0;
 
-    // Group entities by material for efficiency
+    // 按材质分类
     QHash<QString, QVector<EntityID> > entitiesByMaterial;
     for (EntityID entity: mWorld->view<RenderableComponent, MaterialComponent, TransformComponent>()) {
         const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
@@ -131,27 +130,26 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
         }
     }
 
-    // Iterate through materials
     for (auto it = entitiesByMaterial.constBegin(); it != entitiesByMaterial.constEnd(); ++it) {
         const QString &textureId = it.key();
         const QVector<EntityID> &entities = it.value();
 
-        // Get Material GPU Data (Texture)
+        // 获取材质
         RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(textureId);
         if (!matGpu || !matGpu->ready || !matGpu->texture || !mDefaultSampler) {
             qWarning() << "Material resources not ready for texture:" << textureId << "Skipping" << entities.size() <<
                     "entities.";
-            currentInstanceIndex += entities.size(); // Advance index even if skipped
-            continue; // Skip this material group
+            currentInstanceIndex += entities.size();
+            continue;
         }
 
-        // Draw all entities using this material
+        // 绘制材质的所有实体
         for (EntityID entity: entities) {
             if (currentInstanceIndex >= mMaxInstances) break;
 
             quint32 dynamicOffset = currentInstanceIndex * mInstanceBlockAlignedSize;
 
-            // *** Create ONE SRB containing ALL bindings for THIS draw ***
+            // *** 创建绘制对象的 SRB ***
             QScopedPointer drawSrb(mRhi->newShaderResourceBindings());
             drawSrb->setName(QString("DrawSRB_Inst%1_Mat%2").arg(currentInstanceIndex).arg(textureId).toUtf8());
             drawSrb->setBindings({
@@ -168,7 +166,6 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
                 QRhiShaderResourceBinding::sampledTexture(2,
                                                           QRhiShaderResourceBinding::FragmentStage,
                                                           matGpu->texture.get(), mDefaultSampler.get()),
-                // Use material's texture
                 // Binding 3: Instance UBO Slice (Instance Specific)
                 QRhiShaderResourceBinding::uniformBuffer(3,
                                                          QRhiShaderResourceBinding::VertexStage,
@@ -178,25 +175,20 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
 
             if (!drawSrb->create()) {
                 qWarning() << "Failed to create per-draw SRB for instance" << currentInstanceIndex;
-                // Don't advance index if create failed? Or depends on why it failed.
-                // Let's advance for now to avoid infinite loop on persistent error.
                 currentInstanceIndex++;
                 continue;
             }
 
-            // *** Bind the single, complete SRB for this draw ***
+            // --- 完成 SRB ---
             cmdBuffer->setShaderResources(drawSrb.get());
 
-            // --- Issue Draw Call ---
+            // --- 提交绘制调用 ---
             cmdBuffer->drawIndexed(cubeMeshGpu->indexCount);
 
             currentInstanceIndex++;
-        } // End entity loop
+        }
         if (currentInstanceIndex >= mMaxInstances) break;
-    } // End loop for materials
-}
-
-void RasterizeRenderSystem::renderFrame(QRhiCommandBuffer *cmdBuffer) {
+    }
 }
 
 void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch) {
@@ -205,6 +197,7 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         return;
     }
 
+    // --- 更新相机 UBO (Binding 0) ---
     CameraUniformBlock camData;
     bool cameraOk = false;
     if (mActiveCamera != INVALID_ENTITY) {
@@ -212,15 +205,12 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         auto *camTf = mWorld->getComponent<TransformComponent>(mActiveCamera);
         if (camComp && camTf) {
             QMatrix4x4 viewMatrix;
-            // Ensure TransformComponent methods are correct (e.g., position(), getRotation())
-            // Using rotatedVector assumes Camera looks down -Z initially
             viewMatrix.lookAt(camTf->position(), camTf->position() + camTf->rotation().rotatedVector({0, 0, -1}),
                               camTf->rotation().rotatedVector({0, 1, 0}));
 
             QMatrix4x4 projMatrix;
-            // Assuming CameraComponent provides these parameters
             projMatrix.perspective(camComp->mFov, camComp->mAspect, camComp->mNearPlane, camComp->mFarPlane);
-            projMatrix *= mRhi->clipSpaceCorrMatrix(); // Apply Vulkan correction
+            projMatrix *= mRhi->clipSpaceCorrMatrix();
 
             camData.view = viewMatrix.toGenericMatrix<4, 4>();
             camData.projection = projMatrix.toGenericMatrix<4, 4>();
@@ -229,13 +219,9 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         } else {
             qWarning() << "Active camera entity" << mActiveCamera << "missing required components.";
         }
-    } else {
-        // Handle case where there's no camera (identity matrices?)
-        findActiveCamera(); // Try to find one again
     }
     if (!cameraOk) {
-        findActiveCamera(); // Try to find next frame
-        // Set default values?
+        findActiveCamera();
         QMatrix4x4 identity;
         camData.view = identity.toGenericMatrix<4, 4>();
         camData.projection = identity.toGenericMatrix<4, 4>();
@@ -243,16 +229,15 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
     }
     batch->updateDynamicBuffer(mCameraUbo.get(), 0, sizeof(CameraUniformBlock), &camData);
 
-    // --- Update Lighting UBO (Set 0, Binding 1) ---
+    // --- 更新灯光 UBO (Binding 1) ---
     LightingUniformBlock lightData;
     bool lightFound = false;
-    // Find first directional light
+    // 方向光(太阳) 只能使用一个，使用找到的第一个
     for (EntityID entity: mWorld->view<LightComponent, TransformComponent>()) {
         const auto *lightComp = mWorld->getComponent<LightComponent>(entity);
         const auto *lightTf = mWorld->getComponent<TransformComponent>(entity);
         if (lightComp && lightTf && lightComp->type == LightType::Directional) {
             lightData.dirLightDirection = lightTf->rotation().rotatedVector({0, 0, -1}).normalized();
-            // Use transform rotation
             lightData.dirLightAmbient = lightComp->ambient;
             lightData.dirLightDiffuse = lightComp->diffuse;
             lightData.dirLightSpecular = lightComp->specular;
@@ -261,7 +246,6 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         }
     }
     if (!lightFound) {
-        // Default values if no light
         lightData.dirLightDirection = QVector3D(0, -1, 0);
         lightData.dirLightAmbient = QVector3D(0.1f, 0.1f, 0.1f);
         lightData.dirLightDiffuse = QVector3D(0.0f, 0.0f, 0.0f);
@@ -269,14 +253,13 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
     }
     batch->updateDynamicBuffer(mLightingUbo.get(), 0, sizeof(LightingUniformBlock), &lightData);
 
-    // --- Ensure Shared Resources are Uploaded ---
-    // Built-in Cube Mesh
+    // 构建 Cube Mesh
     RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
     if (!cubeMeshGpu) {
-        // Should have been loaded in initialize, but check again
         mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
         cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
-        if (cubeMeshGpu) cubeMeshGpu->ready = false; // Mark for upload
+        if (cubeMeshGpu)
+            cubeMeshGpu->ready = false;
         else
             qWarning() << "Failed to load cube mesh data even on demand.";
     }
@@ -284,7 +267,7 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         mResourceManager->queueMeshUpdate(BUILTIN_CUBE_MESH_ID, batch, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
     }
 
-    // Textures for visible materials
+    // --- 更新材质 GPU 数据 ---
     QSet<QString> uniqueTextureIds;
     for (EntityID entity: mWorld->view<RenderableComponent, MaterialComponent>()) {
         const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
@@ -307,9 +290,8 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
     }
 
 
-    // --- Collect Instance Data and Update Instance UBO (Set 2) ---
+    // --- 收集实例，更新实例 UBO (Binding 3) ---
     int currentInstanceIndex = 0;
-    // Iterate entities that have all necessary components for drawing
     for (EntityID entity: mWorld->view<RenderableComponent, TransformComponent, MaterialComponent>()) {
         if (currentInstanceIndex >= mMaxInstances) {
             qWarning() << "Exceeded max instances per batch:" << mMaxInstances;
@@ -317,19 +299,15 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         }
         const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
         const auto *tfComp = mWorld->getComponent<TransformComponent>(entity);
-        // MaterialComponent needed for grouping later, TransformComponent needed for matrix
 
         if (renderable && renderable->isVisible && tfComp) {
-            // Assuming TransformComponent provides world matrix correctly
             mInstanceDataBuffer[currentInstanceIndex].model = tfComp->worldMatrix().toGenericMatrix<4, 4>();
 
             currentInstanceIndex++;
         }
     }
 
-    // Upload the collected data
     if (currentInstanceIndex > 0) {
-        // *** Use aligned size for total upload size ***
         batch->updateDynamicBuffer(mInstanceUbo.get(), 0,
                                    currentInstanceIndex * mInstanceBlockAlignedSize,
                                    mInstanceDataBuffer.data());
@@ -358,7 +336,6 @@ void RasterizeRenderSystem::createGlobalResources() {
         qFatal("Failed to create default sampler");
     mDefaultSampler->setName(QByteArrayLiteral("Default Sampler"));
 
-    // Create the SRB instance for Set 0
     mGlobalBindings.reset(mRhi->newShaderResourceBindings());
     mGlobalBindings->setBindings({
         QRhiShaderResourceBinding::uniformBuffer(0,
@@ -375,14 +352,12 @@ void RasterizeRenderSystem::createGlobalResources() {
 }
 
 void RasterizeRenderSystem::createInstanceResources() {
-    // Create the large dynamic UBO for instance data
     mInstanceUbo.reset(mRhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer,
                                        mMaxInstances * mInstanceBlockAlignedSize)); // Use aligned size
     if (!mInstanceUbo || !mInstanceUbo->create())
         qFatal("Failed to create instance UBO");
     mInstanceUbo->setName(QByteArrayLiteral("Instance Data UBO"));
 
-    // Pre-allocate CPU buffer
     mInstanceDataBuffer.resize(mMaxInstances);
     qInfo() << "Instance UBO created with capacity for" << mMaxInstances << "instances.";
 }
@@ -403,14 +378,11 @@ void RasterizeRenderSystem::createPipelines() {
     QRhiShaderStage vs = ShaderBundle::getInstance()->getShaderStage("Shaders/baseGeo", QRhiShaderStage::Vertex);
     QRhiShaderStage fs = ShaderBundle::getInstance()->getShaderStage("Shaders/baseGeo", QRhiShaderStage::Fragment);
 
-    // --- Define Pipeline ---
+    // --- 管线 ---
     mBasePipeline.reset(mRhi->newGraphicsPipeline());
     mBasePipeline->setName(QByteArrayLiteral("Base Opaque Pipeline"));
 
-    // --- Define the *SINGLE, COMBINED* SRB Layout for the Pipeline ---
-    // This SRB lists *all* expected bindings across *all* sets (0, 1, 2).
-    // Use nullptr for resource pointers as this is just layout definition.
-
+    // 使用 nullptr ，因为只是布局定义
     mPipelineSrbLayoutDef.reset(mRhi->newShaderResourceBindings());
     mPipelineSrbLayoutDef->setName(QByteArrayLiteral("Pipeline Combined Layout Def"));
     mPipelineSrbLayoutDef->setBindings({
@@ -432,7 +404,6 @@ void RasterizeRenderSystem::createPipelines() {
         qFatal("Failed to create *combined* pipeline SRB layout definition");
     }
 
-    // *** Set the SINGLE combined layout on the pipeline ***
     mBasePipeline->setShaderResourceBindings(mPipelineSrbLayoutDef.get());
 
     mBasePipeline->setShaderStages({vs, fs});
@@ -440,7 +411,7 @@ void RasterizeRenderSystem::createPipelines() {
     mBasePipeline->setSampleCount(mSwapChain->sampleCount());
     mBasePipeline->setRenderPassDescriptor(mSwapChainPassDesc);
     mBasePipeline->setCullMode(QRhiGraphicsPipeline::Back);
-    mBasePipeline->setFrontFace(QRhiGraphicsPipeline::CW);
+    mBasePipeline->setFrontFace(QRhiGraphicsPipeline::CCW);
     mBasePipeline->setDepthTest(true);
     mBasePipeline->setDepthWrite(true);
     mBasePipeline->setDepthOp(QRhiGraphicsPipeline::Less);

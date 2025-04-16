@@ -3,7 +3,7 @@
 #include <QMatrix4x4>
 #include "Component/Component.h"
 
-struct CameraComponent : public Component {
+struct CameraComponent : Component {
     QMatrix4x4 getProjectionMatrix() const;
 
     float mAspect = 1.2f;

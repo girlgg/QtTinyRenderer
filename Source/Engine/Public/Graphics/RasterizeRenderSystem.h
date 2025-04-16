@@ -1,7 +1,8 @@
 #pragma once
 
+#include "ECSCore.h"
 #include "RenderSystem.h"
-#include "Scene/SceneManager.h"
+#include "Component/MeshComponent.h"
 
 class SceneManager;
 
@@ -56,13 +57,16 @@ public:
                     QSharedPointer<ResourceManager> resManager) override;
 
     void releaseResources();
+
+    void releasePipelines();
+
     void releaseInstanceResources();
+
+    void releaseGlobalResources();
 
     void resize(QSize size) override;
 
     void draw(QRhiCommandBuffer *cmdBuffer, const QSize &outputSizeInPixels);
-
-    void renderFrame(QRhiCommandBuffer *cmdBuffer) override;
 
     void submitResourceUpdates(QRhiResourceUpdateBatch *batch) override;
 
@@ -91,9 +95,9 @@ protected:
 
     // --- Caches ---
     // Set 1 (Material): Texture ID -> SRB
-    QHash<QString, QSharedPointer<QRhiShaderResourceBindings>> mMaterialBindingsCache;
+    QHash<QString, QSharedPointer<QRhiShaderResourceBindings> > mMaterialBindingsCache;
     // Set 2 (Instance): Offset -> SRB
-    QHash<quint32, QSharedPointer<QRhiShaderResourceBindings>> mInstanceBindingsCache;
+    QHash<quint32, QSharedPointer<QRhiShaderResourceBindings> > mInstanceBindingsCache;
 
     const QString BUILTIN_CUBE_MESH_ID = "builtin_cube"; // ID for the default cube mesh
 };

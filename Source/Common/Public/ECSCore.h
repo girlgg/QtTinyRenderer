@@ -2,6 +2,7 @@
 
 #include <typeindex>
 #include <type_traits>
+#include <QtTypes>
 
 class Component;
 class System;

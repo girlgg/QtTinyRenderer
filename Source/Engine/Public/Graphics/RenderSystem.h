@@ -44,8 +44,6 @@ public:
                             QSharedPointer<World> world,
                             QSharedPointer<ResourceManager> resManager) = 0;
 
-    virtual void renderFrame(QRhiCommandBuffer *cmdBuffer) = 0;
-
     virtual void resize(QSize size) = 0;
 
     virtual void submitResourceUpdates(QRhiResourceUpdateBatch *batch) = 0;

@@ -1,7 +1,5 @@
 #include "UI/EdgesWidgets/SceneTreeWidget.h"
 
-#include "Scene/SceneManager.h"
-
 SceneTreeWidget::SceneTreeWidget(QWidget *parent)
     : QTreeWidget(parent) {
     setHeaderLabel("场景对象");
@@ -11,14 +9,14 @@ SceneTreeWidget::SceneTreeWidget(QWidget *parent)
 
 void SceneTreeWidget::refreshSceneTree() {
     clear();
-    QVector<SceneObjectInfo> objects;
-    SceneManager::get().getObjects(objects);
-
-    for (const auto &obj: objects) {
-        auto *item = new QTreeWidgetItem(this);
-        item->setText(0, obj.name);
-        item->setData(0, Qt::UserRole, obj.id);
-    }
+    // QVector<SceneObjectInfo> objects;
+    // SceneManager::get().getObjects(objects);
+    //
+    // for (const auto &obj: objects) {
+    //     auto *item = new QTreeWidgetItem(this);
+    //     item->setText(0, obj.name);
+    //     item->setData(0, Qt::UserRole, obj.id);
+    // }
 }
 
 void SceneTreeWidget::handleSelectionChanged() {

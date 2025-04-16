@@ -20,10 +20,11 @@ void ResourceManager::loadMeshFromData(const QString &id, const QVector<VertexDa
     if (mMeshCache.count(id) || !mRhi) return;
 
     RhiMeshGpuData gpuData;
-    // *** Correct size calculation ***
-    gpuData.vertexBuffer.reset(mRhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer,
-                                               vertices.size() * sizeof(VertexData))); // Size * sizeof Struct
-    if (!gpuData.vertexBuffer || !gpuData.vertexBuffer->create()) { // Check pointer too
+    // --- 矫正size ---
+    gpuData.vertexBuffer.reset(mRhi->newBuffer(QRhiBuffer::Immutable,
+                                               QRhiBuffer::VertexBuffer,
+                                               vertices.size() * sizeof(VertexData)));
+    if (!gpuData.vertexBuffer || !gpuData.vertexBuffer->create()) {
         qWarning() << "Failed to create vertex buffer for" << id;
         return;
     }
@@ -32,37 +33,35 @@ void ResourceManager::loadMeshFromData(const QString &id, const QVector<VertexDa
                                               indices.size() * sizeof(quint16)));
     if (!gpuData.indexBuffer || !gpuData.indexBuffer->create()) {
         qWarning() << "Failed to create index buffer for" << id;
-        gpuData.vertexBuffer.reset(); // Clean up already created buffer
+        gpuData.vertexBuffer.reset();
         return;
     }
 
     gpuData.indexCount = indices.size();
-    gpuData.ready = false; // Mark as not uploaded yet
+    gpuData.ready = false;
 
-    // Use insert or operator[] which handles move semantics correctly for QScopedPointer in map value
     mMeshCache.insert(id, std::move(gpuData));
 }
 
 RhiMeshGpuData *ResourceManager::getMeshGpuData(const QString &id) {
-    if (mMeshCache.count(id)) return &mMeshCache[id];
+    if (mMeshCache.count(id))
+        return &mMeshCache[id];
     return nullptr;
 }
 
 bool ResourceManager::queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch *batch,
                                       const QVector<VertexData> &vertices, const QVector<quint16> &indices) {
     if (!mRhi || !batch) return false;
-    RhiMeshGpuData* gpuData = getMeshGpuData(id);
-    // Only update if it exists and is not ready
+    RhiMeshGpuData *gpuData = getMeshGpuData(id);
     if (!gpuData || gpuData->ready) {
-        // If !gpuData, maybe log warning? Should have been loaded before update queued.
-        return true; // Nothing to do or already done
+        return true;
     }
 
-    // Use uploadStaticBuffer variants that take size for robustness
-    batch->uploadStaticBuffer(gpuData->vertexBuffer.get(), 0, vertices.size() * sizeof(VertexData), vertices.constData());
+    batch->uploadStaticBuffer(gpuData->vertexBuffer.get(), 0, vertices.size() * sizeof(VertexData),
+                              vertices.constData());
     batch->uploadStaticBuffer(gpuData->indexBuffer.get(), 0, indices.size() * sizeof(quint16), indices.constData());
 
-    gpuData->ready = true; // Mark as uploaded
+    gpuData->ready = true;
     return true;
 }
 
@@ -74,27 +73,22 @@ void ResourceManager::loadMaterialTexture(const QString &textureId) {
         qWarning() << "Failed to load texture:" << textureId;
         return;
     }
-    image = image.convertToFormat(QImage::Format_RGBA8888); // Ensure format
+    image = image.convertToFormat(QImage::Format_RGBA8888);
 
     RhiMaterialGpuData gpuData;
-    // *** Add Usage Flags ***
     gpuData.texture.reset(mRhi->newTexture(QRhiTexture::RGBA8, image.size(), 1));
     if (!gpuData.texture || !gpuData.texture->create()) {
         qWarning() << "Failed to create texture for" << textureId;
         return;
     }
 
-    // Sampler is created by RasterizeRenderSystem globally now, remove from here
-    // gpuData.sampler.reset(...); // REMOVED
-
-    gpuData.sourceImage = image; // Store image for upload
+    gpuData.sourceImage = image;
     gpuData.ready = false;
     mMaterialCache.insert(textureId, std::move(gpuData));
 }
 
 RhiMaterialGpuData *ResourceManager::getMaterialGpuData(const QString &textureId) {
     if (mMaterialCache.count(textureId)) return &mMaterialCache[textureId];
-    // Maybe load default material here?
     return nullptr;
 }
 
@@ -106,6 +100,6 @@ bool ResourceManager::queueMaterialUpdate(const QString &textureId, QRhiResource
 
     batch->uploadTexture(gpuData->texture.get(), gpuData->sourceImage);
     gpuData->ready = true;
-    gpuData->sourceImage = QImage(); // Release CPU memory after upload
+    gpuData->sourceImage = QImage();
     return true;
 }

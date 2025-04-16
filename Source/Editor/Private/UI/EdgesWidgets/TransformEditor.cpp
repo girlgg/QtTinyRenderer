@@ -6,7 +6,6 @@
 
 #include <util/qvalidator.h>
 
-#include "Scene/SceneManager.h"
 #include "UI/EdgesWidgets/ui_TransformEditor.h"
 
 #define CONNECT_UPDATE_TRANSFORM(UIWIDGET) connect(UIWIDGET, &QLineEdit::textChanged, this, &TransformEditor::updateTransform);
@@ -35,7 +34,7 @@ void TransformEditor::updateFromSceneManager() {
         return;
     }
 
-    const auto loc = SceneManager::get().getObjectLocation(m_currentObjId);
+    // const auto loc = SceneManager::get().getObjectLocation(m_currentObjId);
     blockUIUpdates(true);
 
     // 根据数值大小自动选择显示格式
@@ -45,9 +44,9 @@ void TransformEditor::updateFromSceneManager() {
                QString::number(val, 'f', 4);
     };
 
-    ui->lineEditTranslationX->setText(formatNumber(loc.x()));
-    ui->lineEditTranslationY->setText(formatNumber(loc.x()));
-    ui->lineEditTranslationZ->setText(formatNumber(loc.x()));
+    // ui->lineEditTranslationX->setText(formatNumber(loc.x()));
+    // ui->lineEditTranslationY->setText(formatNumber(loc.x()));
+    // ui->lineEditTranslationZ->setText(formatNumber(loc.x()));
 
     blockUIUpdates(false);
 }

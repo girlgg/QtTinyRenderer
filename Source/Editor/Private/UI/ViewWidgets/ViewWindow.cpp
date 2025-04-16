@@ -14,9 +14,10 @@
 #include "Graphics/RasterizeRenderSystem.h"
 #include "Resources/ResourceManager.h"
 #include "Scene/Camera.h"
-#include "Scene/InputSystem.h"
-#include "Scene/SceneManager.h"
+#include "System/InputSystem.h"
+#include "Scene/SystemManager.h"
 #include "Scene/World.h"
+#include "System/CameraSystem.h"
 
 ViewWindow::ViewWindow(RhiHelper::InitParams inInitParmas)
     : RHIWindow(inInitParmas) {
@@ -24,6 +25,8 @@ ViewWindow::ViewWindow(RhiHelper::InitParams inInitParmas)
 
     mResourceManager.reset(new ResourceManager());
     mWorld.reset(new World());
+    mSystemManager.reset(new SystemManager());
+    mSystemManager->addSystem<CameraSystem>();
 }
 
 ViewWindow::~ViewWindow() {
@@ -38,16 +41,14 @@ void ViewWindow::onInit() {
 }
 
 void ViewWindow::initializeScene() {
-    // Create Camera Entity
+    // 创建相机实体
     EntityID cameraEntity = mWorld->createEntity();
     mWorld->addComponent<TransformComponent>(cameraEntity, {});
     float aspectRatio = mSwapChain->currentPixelSize().width() / (float) mSwapChain->currentPixelSize().height();
     mWorld->addComponent<CameraComponent>(cameraEntity, {{}, aspectRatio, 90.0f, 0.1f, 1000.0f});
-    mWorld->addComponent<CameraControllerComponent>(cameraEntity, {}); // Assuming this exists
-    // TransformComponent *camTransform = mWorld->getComponent<TransformComponent>(cameraEntity);
-    // camTransform->setPosition(QVector3D(0.0f, 0.0f, -2.0f));
+    mWorld->addComponent<CameraControllerComponent>(cameraEntity, {});
 
-    // Create Cube Entity
+    // 创建立方体实体
     for (int i = 0; i < 30; ++i) {
         EntityID cubeEntity = mWorld->createEntity();
         mWorld->addComponent<TransformComponent>(cubeEntity, {});
@@ -61,12 +62,12 @@ void ViewWindow::initializeScene() {
                                          -5 - QRandomGenerator::global()->bounded(4)));
     }
 
-    // Create Light Entity
+    // 创建灯光实体
     EntityID lightEntity = mWorld->createEntity();
     mWorld->addComponent<TransformComponent>(lightEntity, {}); // Pointing downwards-ish
     mWorld->addComponent<LightComponent>(lightEntity, {
                                              {}, LightType::Directional, {1, 1, 1}, 1.0f, {1, 1, 1}, 1, 0, 0, {}, {},
-                                             {}, {0.1f, 0.1f, 0.1f}, {0.8f, 0.8f, 0.8f}
+                                             {1, 1, 1}, {0.1f, 0.1f, 0.1f}, {0.8f, 0.8f, 0.8f}
                                          });
 }
 
@@ -84,7 +85,7 @@ void ViewWindow::onRenderTick() {
         initRhiResource();
     }
 
-    SceneManager::get().tick(mCpuFrameTime);
+    mSystemManager->updateAll(mWorld.get(), mCpuFrameTime);
 
     QRhiRenderTarget *renderTarget = mSwapChain->currentFrameRenderTarget();
     QRhiCommandBuffer *cmdBuffer = mSwapChain->currentFrameCommandBuffer();
@@ -107,14 +108,17 @@ void ViewWindow::onRenderTick() {
 
 void ViewWindow::onResize(const QSize &inSize) {
     mViewRenderSystem->resize(inSize);
-
     setCameraPerspective();
 }
 
 void ViewWindow::setCameraPerspective() {
     QRhiRenderTarget *renderTarget = mSwapChain->currentFrameRenderTarget();
-    SceneManager::get().getCamera()->camera.mAspect =
-            renderTarget->pixelSize().width() / (float) renderTarget->pixelSize().height();
+    if (cameraEntity != INVALID_ENTITY) {
+        if (CameraComponent *camera = mWorld->getComponent<CameraComponent>(cameraEntity)) {
+            mWorld->getComponent<CameraComponent>(cameraEntity)->mAspect =
+                    renderTarget->pixelSize().width() / (float) renderTarget->pixelSize().height();
+        }
+    }
 }
 
 ViewRenderWidget::ViewRenderWidget(QWidget *parent) {

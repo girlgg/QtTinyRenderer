@@ -8,7 +8,6 @@
 struct VertexData;
 class QRhi;
 
-// Simple structs to hold RHI resources related to a specific mesh/material
 struct RhiMeshGpuData {
     QSharedPointer<QRhiBuffer> vertexBuffer;
     QSharedPointer<QRhiBuffer> indexBuffer;
@@ -19,9 +18,8 @@ struct RhiMeshGpuData {
 struct RhiMaterialGpuData {
     QSharedPointer<QRhiTexture> texture;
     QSharedPointer<QRhiSampler> sampler;
-    // Could also include a UBO for material parameters if complex
     bool ready = false;
-    QImage sourceImage; // Keep CPU copy until uploaded? Or just reload?
+    QImage sourceImage;
 };
 
 class ResourceManager {

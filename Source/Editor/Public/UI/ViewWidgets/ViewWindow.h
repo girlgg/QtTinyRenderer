@@ -1,9 +1,10 @@
 #pragma once
 #include <QWidget>
 
-#include "Scene/Primitive.h"
+#include "ECSCore.h"
 #include "UI/ViewWidgets/RHIWindow.h"
 
+class SystemManager;
 class World;
 class ResourceManager;
 class RasterizeRenderSystem;
@@ -41,10 +42,13 @@ private:
 
     QSharedPointer<ResourceManager> mResourceManager;
     QScopedPointer<RasterizeRenderSystem> mViewRenderSystem;
+    QScopedPointer<SystemManager> mSystemManager;
 
     QSharedPointer<World> mWorld;
 
     QPoint mLastMousePos;
+
+    EntityID cameraEntity;
 
     QSet<Qt::Key> mPressedKeys;
     bool mCaptureMouse = false;

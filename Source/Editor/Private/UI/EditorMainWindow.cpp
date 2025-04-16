@@ -10,7 +10,6 @@
 #include "UI/EdgesWidgets/EditorDockWidget.h"
 #include "UI/EdgesWidgets/TransformEditor.h"
 #include "UI/ViewWidgets/ViewWindow.h"
-#include "../../../Engine/Public/Scene/SceneManager.h"
 #include "UI/EdgesWidgets/SceneTreeWidget.h"
 
 EditorMainWindow::EditorMainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -79,15 +78,15 @@ void EditorMainWindow::InitEdgeLayout() {
     connect(SceneTree, &SceneTreeWidget::objectSelected,
             ObjectTransformEditor, &TransformEditor::setCurrentObject);
 
-    connect(ObjectTransformEditor, &TransformEditor::transformChanged,
-            [](int id, QVector3D loc) { SceneManager::get().setObjectLocation(id, loc); });
+    // connect(ObjectTransformEditor, &TransformEditor::transformChanged,
+            // [](int id, QVector3D loc) { SceneManager::get().setObjectLocation(id, loc); });
 
-    connect(&SceneManager::get(), &SceneManager::objectLocationUpdated,
-            [this](int id, QVector3D loc) {
-                if (ObjectTransformEditor->currentObjectId() == id) {
-                    ObjectTransformEditor->updateFromSceneManager();
-                }
-            });
+    // connect(&SceneManager::get(), &SceneManager::objectLocationUpdated,
+    //         [this](int id, QVector3D loc) {
+    //             if (ObjectTransformEditor->currentObjectId() == id) {
+    //                 ObjectTransformEditor->updateFromSceneManager();
+    //             }
+    //         });
 
     SceneTree->refreshSceneTree();
 
