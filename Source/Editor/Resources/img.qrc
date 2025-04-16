@@ -2,6 +2,7 @@
     <qresource prefix="/img">
         <file>Images/qt256.png</file>
         <file>Images/container.png</file>
+        <file>Images/container2.png</file>
         <file>Images/container2_specular.png</file>
     </qresource>
 </RCC>

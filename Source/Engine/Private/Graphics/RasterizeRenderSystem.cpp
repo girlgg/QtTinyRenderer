@@ -111,33 +111,52 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
     // --- 通用状态 ---
     cmdBuffer->setGraphicsPipeline(mBasePipeline.get());
     cmdBuffer->setViewport({0, 0, (float) mOutputSize.width(), (float) mOutputSize.height()});
+    cmdBuffer->setScissor({0, 0, mOutputSize.width(), mOutputSize.height()});
+
+    // 将实体按 Mesh 和 Material分组
+    // 键: Pair(Mesh ID, Material Cache Key)
+    // 值: 使用这些材质网格对的实体列表
+    QHash<QPair<QString, QString>, QVector<EntityID> > entitiesByMeshAndMaterial;
+    int totalEntitiesToRender = 0;
+
+    for (EntityID entity: mWorld->view<RenderableComponent, MeshComponent, MaterialComponent, TransformComponent>()) {
+        const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
+        const auto *meshComp = mWorld->getComponent<MeshComponent>(entity);
+        const auto *matComp = mWorld->getComponent<MaterialComponent>(entity);
+        const auto *tfComp = mWorld->getComponent<TransformComponent>(entity);
+
+        if (renderable && renderable->isVisible && meshComp && matComp && tfComp) {
+            QString meshId = meshComp->meshResourceId;
+            QString matId = mResourceManager->generateMaterialCacheKey(matComp);
+
+            RhiMeshGpuData *meshGpu = mResourceManager->getMeshGpuData(meshId);
+            RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(matId);
+            if (meshGpu && matGpu) {
+                entitiesByMeshAndMaterial[qMakePair(meshId, matId)].append(entity);
+                totalEntitiesToRender++;
+            } else {
+                qWarning() << "Skipping entity" << entity << "- missing mesh/material cache entry.";
+            }
+        }
+    }
+
+    int currentInstanceIndex = 0;
 
     // -- Vertex/Index Buffers --
     QRhiCommandBuffer::VertexInput vtxBinding(cubeMeshGpu->vertexBuffer.get(), 0);
     cmdBuffer->setVertexInput(0, 1, &vtxBinding, cubeMeshGpu->indexBuffer.get(), 0, QRhiCommandBuffer::IndexUInt16);
 
-    // --- Draw ---
-    int currentInstanceIndex = 0;
-
-    // 按材质分类
-    QHash<QString, QVector<EntityID> > entitiesByMaterial;
-    for (EntityID entity: mWorld->view<RenderableComponent, MaterialComponent, TransformComponent>()) {
-        const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
-        const auto *matComp = mWorld->getComponent<MaterialComponent>(entity);
-        const auto *tfComp = mWorld->getComponent<TransformComponent>(entity); // Need transform to exist
-        if (renderable && renderable->isVisible && matComp && tfComp) {
-            entitiesByMaterial[matComp->textureResourceId].append(entity);
-        }
-    }
-
-    for (auto it = entitiesByMaterial.constBegin(); it != entitiesByMaterial.constEnd(); ++it) {
-        const QString &textureId = it.key();
+    for (auto it = entitiesByMeshAndMaterial.constBegin(); it != entitiesByMeshAndMaterial.constEnd(); ++it) {
+        const QString &meshId = it.key().first;
+        const QString &materialId = it.key().second;
         const QVector<EntityID> &entities = it.value();
 
-        // 获取材质
-        RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(textureId);
-        if (!matGpu || !matGpu->ready || !matGpu->texture || !mDefaultSampler) {
-            qWarning() << "Material resources not ready for texture:" << textureId << "Skipping" << entities.size() <<
+        RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(materialId);
+
+        RhiTextureGpuData *texGpu = mResourceManager->getTextureGpuData(matGpu->albedoId);
+
+        if (!matGpu || !matGpu->ready || matGpu->albedoId.isEmpty() || !mDefaultSampler) {
+            qWarning() << "Material resources not ready for material:" << materialId << "Skipping" << entities.size() <<
                     "entities.";
             currentInstanceIndex += entities.size();
             continue;
@@ -151,7 +170,7 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
 
             // *** 创建绘制对象的 SRB ***
             QScopedPointer drawSrb(mRhi->newShaderResourceBindings());
-            drawSrb->setName(QString("DrawSRB_Inst%1_Mat%2").arg(currentInstanceIndex).arg(textureId).toUtf8());
+            drawSrb->setName(QString("DrawSRB_Inst%1_Mat%2").arg(currentInstanceIndex).arg(matGpu->albedoId).toUtf8());
             drawSrb->setBindings({
                 // Binding 0: Camera UBO (Global)
                 QRhiShaderResourceBinding::uniformBuffer(0,
@@ -165,7 +184,7 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
                 // Binding 2: Texture Sampler (Material Specific)
                 QRhiShaderResourceBinding::sampledTexture(2,
                                                           QRhiShaderResourceBinding::FragmentStage,
-                                                          matGpu->texture.get(), mDefaultSampler.get()),
+                                                          texGpu->texture.get(), mDefaultSampler.get()),
                 // Binding 3: Instance UBO Slice (Instance Specific)
                 QRhiShaderResourceBinding::uniformBuffer(3,
                                                          QRhiShaderResourceBinding::VertexStage,
@@ -268,20 +287,17 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
     }
 
     // --- 更新材质 GPU 数据 ---
-    QSet<QString> uniqueTextureIds;
+    QSet<QString> uniqueMaterialIds;
     for (EntityID entity: mWorld->view<RenderableComponent, MaterialComponent>()) {
         const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
-        const auto *matComp = mWorld->getComponent<MaterialComponent>(entity);
+        auto *matComp = mWorld->getComponent<MaterialComponent>(entity);
         if (renderable && renderable->isVisible && matComp) {
-            uniqueTextureIds.insert(matComp->textureResourceId);
+            uniqueMaterialIds.insert(mResourceManager->generateMaterialCacheKey(matComp));
+            mResourceManager->loadMaterial(mResourceManager->generateMaterialCacheKey(matComp), matComp);
         }
     }
-    for (const QString &textureId: qAsConst(uniqueTextureIds)) {
-        if (!mResourceManager->getMaterialGpuData(textureId)) {
-            mResourceManager->loadMaterialTexture(textureId);
-        }
+    for (const QString &textureId: qAsConst(uniqueMaterialIds)) {
         RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(textureId);
-        // Check pointer and readiness
         if (matGpu && !matGpu->ready) {
             mResourceManager->queueMaterialUpdate(textureId, batch);
         } else if (!matGpu) {
