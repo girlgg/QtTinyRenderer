@@ -48,13 +48,26 @@ void RasterizeRenderSystem::initialize(QRhi *rhi, QRhiSwapChain *swapChain, QRhi
 
     findActiveCamera();
 
-    if (!mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID)) {
-        mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID,
-                                           DEFAULT_CUBE_VERTICES,
-                                           DEFAULT_CUBE_INDICES);
-        RhiMeshGpuData *meshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
-        if (meshGpu) meshGpu->ready = false;
-    }
+    mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID,
+                                       DEFAULT_CUBE_VERTICES,
+                                       DEFAULT_CUBE_INDICES);
+    mResourceManager->loadMeshFromData(BUILTIN_PYRAMID_MESH_ID,
+                                       DEFAULT_PYRAMID_VERTICES,
+                                       DEFAULT_PYRAMID_INDICES);
+
+    RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
+    if (cubeMeshGpu)
+        cubeMeshGpu->ready = false;
+    else
+        qWarning() << "Failed to prepare cube mesh data structure.";
+
+    RhiMeshGpuData *pyramidMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_PYRAMID_MESH_ID);
+    if (pyramidMeshGpu)
+        pyramidMeshGpu->ready = false;
+    else
+        qWarning() << "Failed to prepare pyramid mesh data structure.";
+
+    qInfo() << "RasterizeRenderSystem initialized.";
 }
 
 void RasterizeRenderSystem::releaseResources() {
@@ -86,7 +99,6 @@ void RasterizeRenderSystem::releaseGlobalResources() {
     mLightingUbo.reset();
     mCameraUbo.reset();
     mDefaultSampler.reset();
-    mGlobalBindings.reset();
 }
 
 void RasterizeRenderSystem::resize(QSize size) {
@@ -96,27 +108,19 @@ void RasterizeRenderSystem::resize(QSize size) {
 }
 
 void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outputSizeInPixels) {
-    if (!mWorld || !mResourceManager || !mBasePipeline || !mGlobalBindings || !cmdBuffer || !mInstanceUbo || !mRhi) {
+    if (!mWorld || !mResourceManager || !mBasePipeline || !cmdBuffer || !mInstanceUbo || !mRhi) {
         qWarning() << "draw - Preconditions not met.";
         return;
     }
 
-    // 获取 cube mesh (必须在submitResourceUpdates之后)
-    RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
-    if (!cubeMeshGpu || !cubeMeshGpu->ready) {
-        qWarning() << "Cube mesh data not ready for drawing.";
-        return;
-    }
-
-    // --- 通用状态 ---
+    // --- 设置视口和裁剪矩阵 ---
     cmdBuffer->setGraphicsPipeline(mBasePipeline.get());
     cmdBuffer->setViewport({0, 0, (float) mOutputSize.width(), (float) mOutputSize.height()});
     cmdBuffer->setScissor({0, 0, mOutputSize.width(), mOutputSize.height()});
 
     // 将实体按 Mesh 和 Material分组
-    // 键: Pair(Mesh ID, Material Cache Key)
-    // 值: 使用这些材质网格对的实体列表
-    QHash<QPair<QString, QString>, QVector<EntityID> > entitiesByMeshAndMaterial;
+    // (Key: MeshID, Value: Map<MaterialID, QVector<EntityID>>)
+    QHash<QString, QHash<QString, QVector<EntityID> > > entitiesByMeshThenMaterial;
     int totalEntitiesToRender = 0;
 
     for (EntityID entity: mWorld->view<RenderableComponent, MeshComponent, MaterialComponent, TransformComponent>()) {
@@ -131,83 +135,142 @@ void RasterizeRenderSystem::draw(QRhiCommandBuffer *cmdBuffer, const QSize &outp
 
             RhiMeshGpuData *meshGpu = mResourceManager->getMeshGpuData(meshId);
             RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(matId);
-            if (meshGpu && matGpu) {
-                entitiesByMeshAndMaterial[qMakePair(meshId, matId)].append(entity);
-                totalEntitiesToRender++;
+            // 确保资源都已就绪再添加到绘制列表
+            if (meshGpu && meshGpu->ready && matGpu && matGpu->ready) {
+                // 还需要检查纹理是否就绪
+                // 暂时只检查 Albedo
+                RhiTextureGpuData *texGpu = mResourceManager->getTextureGpuData(matGpu->albedoId);
+                // 确保 Albedo 纹理也准备好了
+                if (texGpu && texGpu->ready) {
+                    entitiesByMeshThenMaterial[meshId][matId].append(entity);
+                    totalEntitiesToRender++;
+                } else {
+                    qWarning() << "Skipping entity" << entity << "- Albedo texture not ready for material:" << matId;
+                }
             } else {
-                qWarning() << "Skipping entity" << entity << "- missing mesh/material cache entry.";
+                if (!meshGpu || !meshGpu->ready) {
+                    qWarning() << "Skipping entity" << entity << "- Mesh not ready:" << meshId;
+                }
+                if (!matGpu || !matGpu->ready) {
+                    qWarning() << "Skipping entity" << entity << "- Material definition not ready:" << matId;
+                }
             }
         }
     }
 
-    int currentInstanceIndex = 0;
+    int drawnInstanceCount = 0;
+
+    // 获取 cube mesh (必须在submitResourceUpdates之后)
+    RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
+    if (!cubeMeshGpu || !cubeMeshGpu->ready) {
+        qWarning() << "Cube mesh data not ready for drawing.";
+        return;
+    }
 
     // -- Vertex/Index Buffers --
     QRhiCommandBuffer::VertexInput vtxBinding(cubeMeshGpu->vertexBuffer.get(), 0);
     cmdBuffer->setVertexInput(0, 1, &vtxBinding, cubeMeshGpu->indexBuffer.get(), 0, QRhiCommandBuffer::IndexUInt16);
 
-    for (auto it = entitiesByMeshAndMaterial.constBegin(); it != entitiesByMeshAndMaterial.constEnd(); ++it) {
-        const QString &meshId = it.key().first;
-        const QString &materialId = it.key().second;
-        const QVector<EntityID> &entities = it.value();
+    for (auto meshIt = entitiesByMeshThenMaterial.constBegin();
+         meshIt != entitiesByMeshThenMaterial.constEnd(); ++meshIt) {
+        const QString &meshId = meshIt.key();
+        const QHash<QString, QVector<EntityID> > &materials = meshIt.value();
 
-        RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(materialId);
-
-        RhiTextureGpuData *texGpu = mResourceManager->getTextureGpuData(matGpu->albedoId);
-
-        if (!matGpu || !matGpu->ready || matGpu->albedoId.isEmpty() || !mDefaultSampler) {
-            qWarning() << "Material resources not ready for material:" << materialId << "Skipping" << entities.size() <<
-                    "entities.";
-            currentInstanceIndex += entities.size();
+        RhiMeshGpuData *meshGpu = mResourceManager->getMeshGpuData(meshId);
+        if (!meshGpu || !meshGpu->ready || meshGpu->indexCount == 0) {
+            qWarning() << "draw - Skipping mesh" << meshId << "as its GPU data is not ready or invalid.";
+            // 跳过这个 Mesh 的所有材质和实体
+            for (const auto &matEntities: materials) {
+                // 仍然需要增加 instance 计数器，因为它们在 UBO 中占了位置
+                drawnInstanceCount += matEntities.size();
+            }
             continue;
         }
 
-        // 绘制材质的所有实体
-        for (EntityID entity: entities) {
-            if (currentInstanceIndex >= mMaxInstances) break;
+        // 为当前 Mesh 设置 VBO 和 IBO
+        QRhiCommandBuffer::VertexInput vtxBinding(meshGpu->vertexBuffer.get(), 0);
+        // 第一个参数 0: location in shader, 1: number of bindings, &vtxBinding: the binding details
+        // meshGpu->indexBuffer.get(): index buffer, 0: offset, QRhiCommandBuffer::IndexUInt16: index type
+        cmdBuffer->setVertexInput(0, 1, &vtxBinding, meshGpu->indexBuffer.get(), 0, QRhiCommandBuffer::IndexUInt16);
 
-            quint32 dynamicOffset = currentInstanceIndex * mInstanceBlockAlignedSize;
+        // 内层循环：遍历当前 Mesh 的不同 Material
+        for (auto matIt = materials.constBegin(); matIt != materials.constEnd(); ++matIt) {
+            const QString &materialId = matIt.key();
+            const QVector<EntityID> &entities = matIt.value();
 
-            // *** 创建绘制对象的 SRB ***
-            QScopedPointer drawSrb(mRhi->newShaderResourceBindings());
-            drawSrb->setName(QString("DrawSRB_Inst%1_Mat%2").arg(currentInstanceIndex).arg(matGpu->albedoId).toUtf8());
-            drawSrb->setBindings({
-                // Binding 0: Camera UBO (Global)
-                QRhiShaderResourceBinding::uniformBuffer(0,
-                                                         QRhiShaderResourceBinding::VertexStage |
-                                                         QRhiShaderResourceBinding::FragmentStage,
-                                                         mCameraUbo.get()), // Use actual UBO
-                // Binding 1: Light UBO (Global)
-                QRhiShaderResourceBinding::uniformBuffer(1,
-                                                         QRhiShaderResourceBinding::FragmentStage,
-                                                         mLightingUbo.get()), // Use actual UBO
-                // Binding 2: Texture Sampler (Material Specific)
-                QRhiShaderResourceBinding::sampledTexture(2,
-                                                          QRhiShaderResourceBinding::FragmentStage,
-                                                          texGpu->texture.get(), mDefaultSampler.get()),
-                // Binding 3: Instance UBO Slice (Instance Specific)
-                QRhiShaderResourceBinding::uniformBuffer(3,
-                                                         QRhiShaderResourceBinding::VertexStage,
-                                                         mInstanceUbo.get(), dynamicOffset,
-                                                         mInstanceBlockAlignedSize) // Use instance UBO slice
-            });
-
-            if (!drawSrb->create()) {
-                qWarning() << "Failed to create per-draw SRB for instance" << currentInstanceIndex;
-                currentInstanceIndex++;
+            RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(materialId);
+            if (!matGpu || !matGpu->ready) {
+                qWarning() << "draw - Skipping material" << materialId << "as its GPU data is not ready (unexpected).";
+                drawnInstanceCount += entities.size();
                 continue;
             }
 
-            // --- 完成 SRB ---
-            cmdBuffer->setShaderResources(drawSrb.get());
+            // 获取 Albedo 纹理
+            RhiTextureGpuData *texGpu = mResourceManager->getTextureGpuData(matGpu->albedoId);
+            if (!texGpu || !texGpu->ready || !texGpu->texture) {
+                qWarning() << "draw - Skipping material" << materialId << "due to missing/unready albedo texture:" <<
+                        matGpu->albedoId;
+                drawnInstanceCount += entities.size();
+                continue;
+            }
+            // 对于这个 Mesh 和 Material 组合下的每个实体进行绘制
+            for (EntityID entity: entities) {
+                // 检查是否超出 Instance UBO 容量
+                if (drawnInstanceCount >= mMaxInstances) {
+                    qWarning() << "draw - Reached max instances limit (" << mMaxInstances <<
+                            "), skipping further draws.";
+                    goto end_draw_loops; // 跳出所有循环
+                }
+                // 获取当前实例在 Instance UBO 中的动态偏移量
+                // drawnInstanceCount 必须是基于所有已处理实体的累计计数，而不是当前批次的索引。
+                quint32 dynamicOffset = drawnInstanceCount * mInstanceBlockAlignedSize;
+                // --- 设置特定于此绘制调用的 Shader Resource Bindings ---
+                // （包括 Camera UBO, Lighting UBO, Texture, Sampler, Instance UBO slice）
+                // 注意：Camera 和 Lighting UBO 是全局的，但在这里绑定是为了与纹理和实例数据组合
+                QScopedPointer<QRhiShaderResourceBindings> drawSrb(mRhi->newShaderResourceBindings());
+                drawSrb->setName(QString("DrawSRB_Mesh%1_Mat%2_Inst%3")
+                    .arg(meshId)
+                    .arg(materialId.split('/').last())
+                    .arg(drawnInstanceCount)
+                    .toUtf8());
+                drawSrb->setBindings({
+                    // Binding 0: Camera UBO (Global)
+                    QRhiShaderResourceBinding::uniformBuffer(0,
+                                                             QRhiShaderResourceBinding::VertexStage |
+                                                             QRhiShaderResourceBinding::FragmentStage,
+                                                             mCameraUbo.get()),
+                    // Binding 1: Lighting UBO (Global)
+                    QRhiShaderResourceBinding::uniformBuffer(1,
+                                                             QRhiShaderResourceBinding::FragmentStage,
+                                                             mLightingUbo.get()),
+                    // Binding 2: Albedo Texture + Sampler (Material specific)
+                    QRhiShaderResourceBinding::sampledTexture(2,
+                                                              QRhiShaderResourceBinding::FragmentStage,
+                                                              texGpu->texture.get(),
+                                                              mDefaultSampler.get()),
+                    // Binding 3: Instance Data UBO Slice (Instance specific)
+                    QRhiShaderResourceBinding::uniformBuffer(3,
+                                                             QRhiShaderResourceBinding::VertexStage,
+                                                             mInstanceUbo.get(),
+                                                             dynamicOffset,
+                                                             mInstanceBlockAlignedSize)
+                    // QRhiShaderResourceBinding::sampledTexture(4, ... Normal Map ...),
+                    // QRhiShaderResourceBinding::sampledTexture(5, ... MetallicRoughness Map ...),
+                });
 
-            // --- 提交绘制调用 ---
-            cmdBuffer->drawIndexed(cubeMeshGpu->indexCount);
-
-            currentInstanceIndex++;
+                if (!drawSrb->create()) {
+                    qWarning() << "Failed to create per-draw SRB for instance" << drawnInstanceCount << "mesh:" <<
+                            meshId << "mat:" << materialId;
+                    drawnInstanceCount++;
+                    continue;
+                }
+                cmdBuffer->setShaderResources(drawSrb.get());
+                cmdBuffer->drawIndexed(meshGpu->indexCount);
+                drawnInstanceCount++;
+            }
         }
-        if (currentInstanceIndex >= mMaxInstances) break;
     }
+end_draw_loops:;
 }
 
 void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch) {
@@ -250,65 +313,142 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
 
     // --- 更新灯光 UBO (Binding 1) ---
     LightingUniformBlock lightData;
-    bool lightFound = false;
-    // 方向光(太阳) 只能使用一个，使用找到的第一个
+    memset(&lightData, 0, sizeof(LightingUniformBlock));
+    int pointLightIndex = 0;
+
     for (EntityID entity: mWorld->view<LightComponent, TransformComponent>()) {
-        const auto *lightComp = mWorld->getComponent<LightComponent>(entity);
-        const auto *lightTf = mWorld->getComponent<TransformComponent>(entity);
-        if (lightComp && lightTf && lightComp->type == LightType::Directional) {
-            lightData.dirLightDirection = lightTf->rotation().rotatedVector({0, 0, -1}).normalized();
-            lightData.dirLightAmbient = lightComp->ambient;
-            lightData.dirLightDiffuse = lightComp->diffuse;
-            lightData.dirLightSpecular = lightComp->specular;
-            lightFound = true;
-            break;
+        auto *lightComp = mWorld->getComponent<LightComponent>(entity);
+        auto *lightTf = mWorld->getComponent<TransformComponent>(entity);
+
+        if (!lightComp || !lightTf) continue;
+
+        switch (lightComp->type) {
+            case LightType::Directional:
+                // 只处理找到的第一个方向光（或者可以根据需要选择最亮的）
+                if (!lightData.dirLight.enabled) {
+                    // 方向由 Transform 的 Z 轴负方向决定
+                    lightData.dirLight.direction = lightTf->rotation().rotatedVector({0, 0, -1}).normalized();
+                    // 直接使用组件中的ADS值，或者基于 color/intensity 计算
+                    lightData.dirLight.ambient = lightComp->ambient * lightComp->intensity; // 示例：强度影响环境光
+                    lightData.dirLight.diffuse = lightComp->color * lightComp->intensity; // 示例：强度影响漫反射
+                    lightData.dirLight.specular = lightComp->specular * lightComp->intensity; // 示例：强度影响高光
+                    lightData.dirLight.enabled = 1; // 标记为启用
+                }
+                break;
+
+            case LightType::Point:
+                if (pointLightIndex < MAX_POINT_LIGHTS) {
+                    auto &pl = lightData.pointLights[pointLightIndex];
+                    pl.position = lightTf->position();
+                    pl.color = lightComp->color; // 可以预乘强度: lightComp->color * lightComp->intensity;
+                    pl.intensity = lightComp->intensity; // 单独传递强度
+                    pl.attenuation = QVector3D(lightComp->constantAttenuation,
+                                               lightComp->linearAttenuation,
+                                               lightComp->quadraticAttenuation);
+                    // pl.ambient = ... (如果需要单独设置)
+                    // pl.diffuse = ...
+                    // pl.specular = ...
+                    pointLightIndex++;
+                } else {
+                    qWarning() << "Exceeded MAX_POINT_LIGHTS in scene, ignoring extra point light:" << entity;
+                }
+                break;
+
+            case LightType::Spot:
+                // TODO: 添加 Spot Light 处理逻辑 (如果需要)
+                // if (spotLightIndex < MAX_SPOT_LIGHTS) { ... }
+                break;
         }
     }
-    if (!lightFound) {
-        lightData.dirLightDirection = QVector3D(0, -1, 0);
-        lightData.dirLightAmbient = QVector3D(0.1f, 0.1f, 0.1f);
-        lightData.dirLightDiffuse = QVector3D(0.0f, 0.0f, 0.0f);
-        lightData.dirLightSpecular = QVector3D(0.0f, 0.0f, 0.0f);
+    lightData.numPointLights = pointLightIndex;
+    // lightData.numSpotLights = spotLightIndex; // 如果有聚光灯
+
+    if (!lightData.dirLight.enabled) {
+        qWarning() << "No directional light found in the scene.";
+        // 可以设置一个默认的非常弱的或禁用的方向光
+        lightData.dirLight.direction = QVector3D(0, -1, 0);
+        lightData.dirLight.ambient = QVector3D(0.01f, 0.01f, 0.01f);
+        lightData.dirLight.diffuse = QVector3D(0, 0, 0);
+        lightData.dirLight.specular = QVector3D(0, 0, 0);
+        lightData.dirLight.enabled = 0; // 确保禁用
     }
+    // 上传更新后的灯光数据
     batch->updateDynamicBuffer(mLightingUbo.get(), 0, sizeof(LightingUniformBlock), &lightData);
 
     // 构建 Cube Mesh
     RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
-    if (!cubeMeshGpu) {
-        mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
-        cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
-        if (cubeMeshGpu)
-            cubeMeshGpu->ready = false;
-        else
-            qWarning() << "Failed to load cube mesh data even on demand.";
-    }
     if (cubeMeshGpu && !cubeMeshGpu->ready) {
         mResourceManager->queueMeshUpdate(BUILTIN_CUBE_MESH_ID, batch, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
+        // queueMeshUpdate 内部会将 ready 设置为 true
+    } else if (!cubeMeshGpu) {
+        qWarning() << "Cube mesh GPU data is null during update.";
+    }
+    RhiMeshGpuData *pyramidMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_PYRAMID_MESH_ID);
+    if (pyramidMeshGpu && !pyramidMeshGpu->ready) {
+        mResourceManager->queueMeshUpdate(BUILTIN_PYRAMID_MESH_ID, batch, DEFAULT_PYRAMID_VERTICES,
+                                          DEFAULT_PYRAMID_INDICES);
+    } else if (!pyramidMeshGpu) {
+        qWarning() << "Pyramid mesh GPU data is null during update.";
     }
 
     // --- 更新材质 GPU 数据 ---
     QSet<QString> uniqueMaterialIds;
+    QSet<QString> requiredTextureIds;
+
     for (EntityID entity: mWorld->view<RenderableComponent, MaterialComponent>()) {
         const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
         auto *matComp = mWorld->getComponent<MaterialComponent>(entity);
         if (renderable && renderable->isVisible && matComp) {
-            uniqueMaterialIds.insert(mResourceManager->generateMaterialCacheKey(matComp));
-            mResourceManager->loadMaterial(mResourceManager->generateMaterialCacheKey(matComp), matComp);
+            QString matKey = mResourceManager->generateMaterialCacheKey(matComp);
+            uniqueMaterialIds.insert(matKey);
+            mResourceManager->loadMaterial(matKey, matComp);
+            RhiMaterialGpuData *matGpuDef = mResourceManager->getMaterialGpuData(matKey);
+            if (matGpuDef) {
+                if (!matGpuDef->albedoId.isEmpty()) requiredTextureIds.insert(matGpuDef->albedoId);
+                if (!matGpuDef->normalId.isEmpty()) requiredTextureIds.insert(matGpuDef->normalId);
+                if (!matGpuDef->metallicRoughnessId.isEmpty())
+                    requiredTextureIds.
+                            insert(matGpuDef->metallicRoughnessId);
+                if (!matGpuDef->aoId.isEmpty()) requiredTextureIds.insert(matGpuDef->aoId);
+                if (!matGpuDef->emissiveId.isEmpty()) requiredTextureIds.insert(matGpuDef->emissiveId);
+            }
         }
     }
-    for (const QString &textureId: qAsConst(uniqueMaterialIds)) {
-        RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(textureId);
+    // 2. 确保所有需要的纹理已加载并排队上传（如果需要）
+    for (const QString &textureId: qAsConst(requiredTextureIds)) {
+        // loadTexture 应该在 loadMaterial 中被间接调用了，这里主要是检查和触发上传
+        RhiTextureGpuData *texGpu = mResourceManager->getTextureGpuData(textureId);
+        if (texGpu && !texGpu->ready && !texGpu->sourceImage.isNull()) {
+            batch->uploadTexture(texGpu->texture.get(), texGpu->sourceImage);
+            texGpu->sourceImage = QImage(); // 清除CPU端图像数据
+            texGpu->ready = true;
+        } else if (!texGpu) {
+            qWarning() << "Texture GPU data not found after load attempt for:" << textureId <<
+                    "Was it loaded correctly?";
+        }
+    }
+    // 3. 排队上传材质（主要是标记 ready，因为纹理已单独处理）
+    for (const QString &materialId: qAsConst(uniqueMaterialIds)) {
+        RhiMaterialGpuData *matGpu = mResourceManager->getMaterialGpuData(materialId);
         if (matGpu && !matGpu->ready) {
-            mResourceManager->queueMaterialUpdate(textureId, batch);
+            bool allTexturesReady = true;
+            if (!matGpu->albedoId.isEmpty())
+                allTexturesReady &= (mResourceManager->getTextureGpuData(matGpu->albedoId) && mResourceManager->
+                                     getTextureGpuData(matGpu->albedoId)->ready);
+            // ... 检查其他纹理 ...
+            if (allTexturesReady) {
+                matGpu->ready = true; // 标记材质就绪
+            } else {
+                qWarning() << "Material" << materialId << "not ready because some textures are not ready.";
+            }
         } else if (!matGpu) {
-            qWarning() << "Material GPU data still null after load attempt for:" << textureId;
+            qWarning() << "Material GPU data still null after load attempt for:" << materialId;
         }
     }
-
 
     // --- 收集实例，更新实例 UBO (Binding 3) ---
     int currentInstanceIndex = 0;
-    for (EntityID entity: mWorld->view<RenderableComponent, TransformComponent, MaterialComponent>()) {
+    for (EntityID entity: mWorld->view<RenderableComponent, TransformComponent, MaterialComponent, MeshComponent>()) {
         if (currentInstanceIndex >= mMaxInstances) {
             qWarning() << "Exceeded max instances per batch:" << mMaxInstances;
             break;
@@ -316,9 +456,16 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
         const auto *renderable = mWorld->getComponent<RenderableComponent>(entity);
         const auto *tfComp = mWorld->getComponent<TransformComponent>(entity);
 
-        if (renderable && renderable->isVisible && tfComp) {
-            mInstanceDataBuffer[currentInstanceIndex].model = tfComp->worldMatrix().toGenericMatrix<4, 4>();
+        // 选择性地在这里也检查 Material 和 Mesh 是否有效，以减少 UBO 更新量
+        // const auto *matComp = mWorld->getComponent<MaterialComponent>(entity);
+        // const auto *meshComp = mWorld->getComponent<MeshComponent>(entity);
+        // RhiMaterialGpuData* matGpu = mResourceManager->getMaterialGpuData(mResourceManager->generateMaterialCacheKey(matComp));
+        // RhiMeshGpuData* meshGpu = mResourceManager->getMeshGpuData(meshComp->meshResourceId);
 
+        if (renderable && renderable->isVisible && tfComp /*&& matGpu && matGpu->ready && meshGpu && meshGpu->ready*/) {
+            mInstanceDataBuffer[currentInstanceIndex].model = tfComp->worldMatrix().toGenericMatrix<4, 4>();
+            // 如果需要法线矩阵等，也在这里计算并填充
+            // mInstanceDataBuffer[currentInstanceIndex].normalMatrix = ...;
             currentInstanceIndex++;
         }
     }
@@ -328,6 +475,7 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
                                    currentInstanceIndex * mInstanceBlockAlignedSize,
                                    mInstanceDataBuffer.data());
     }
+    qInfo() << "Submitted updates for" << currentInstanceIndex << "instances.";
 }
 
 void RasterizeRenderSystem::createGlobalResources() {
@@ -352,19 +500,7 @@ void RasterizeRenderSystem::createGlobalResources() {
         qFatal("Failed to create default sampler");
     mDefaultSampler->setName(QByteArrayLiteral("Default Sampler"));
 
-    mGlobalBindings.reset(mRhi->newShaderResourceBindings());
-    mGlobalBindings->setBindings({
-        QRhiShaderResourceBinding::uniformBuffer(0,
-                                                 QRhiShaderResourceBinding::VertexStage |
-                                                 QRhiShaderResourceBinding::FragmentStage,
-                                                 mCameraUbo.get()),
-        QRhiShaderResourceBinding::uniformBuffer(1,
-                                                 QRhiShaderResourceBinding::FragmentStage,
-                                                 mLightingUbo.get())
-    });
-    if (!mGlobalBindings->create())
-        qFatal("Failed to create global SRB");
-    mGlobalBindings->setName(QByteArrayLiteral("Global SRB"));
+    // --- rhi无法使用全局 SRB ---
 }
 
 void RasterizeRenderSystem::createInstanceResources() {

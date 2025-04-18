@@ -10,6 +10,7 @@
 // const int MAX_SPOT_LIGHTS = 16; // Adjust as needed
 const QString BUILTIN_CUBE_MESH_ID = "builtin://meshes/cube";
 const QString BUILTIN_SPHERE_MESH_ID = "builtin://meshes/sphere";
+const QString BUILTIN_PYRAMID_MESH_ID = "builtin://meshes/pyramid";
 // const QString DEFAULT_MODEL_ID = "custom_model"; // Example ID for a custom model
 
 // Define default texture paths (or use empty strings if defaults aren't desired)
@@ -46,16 +47,61 @@ struct alignas(16) CameraUniformBlock {
     float padding;
 };
 
-struct LightingUniformBlock {
-    QVector3D dirLightDirection;
-    float padding1;
-    QVector3D dirLightAmbient;
-    float padding2;
-    QVector3D dirLightDiffuse;
-    float padding3;
-    QVector3D dirLightSpecular;
-    float padding4;
+// 定义最大光源数量，必须和shader一致
+#define MAX_POINT_LIGHTS 4
+#define MAX_SPOT_LIGHTS 2
+
+struct PointLightData {
+    alignas(16) QVector3D position;
+    alignas(16) QVector3D color;
+    alignas(16) QVector3D attenuation;
+    alignas(4) float intensity;
+    alignas(16) QVector3D ambient;
+    alignas(16) QVector3D diffuse;
+    alignas(16) QVector3D specular;
 };
+
+struct DirectionalLightData {
+    alignas(16) QVector3D direction;
+    alignas(16) QVector3D ambient;
+    alignas(16) QVector3D diffuse;
+    alignas(16) QVector3D specular;
+    alignas(4) int enabled = 0;
+};
+
+struct SpotLightData {
+    alignas(16) QVector3D position;
+    alignas(16) QVector3D direction;
+    alignas(16) QVector3D ambient;
+    alignas(16) QVector3D diffuse;
+    alignas(16) QVector3D specular;
+
+    alignas(4) float cutOffAngle;
+    alignas(4) float outerCutOffAngle;
+    alignas(4) float constantAttenuation = 1.0f;
+    alignas(4) float linearAttenuation = 0.09f;
+    alignas(4) float quadraticAttenuation = 0.032f;
+    alignas(4) float intensity = 1.0f;
+};
+
+struct LightingUniformBlock {
+    alignas(16) DirectionalLightData dirLight;
+    alignas(16) PointLightData pointLights[MAX_POINT_LIGHTS];
+    alignas(4) int numPointLights = 0;
+    alignas(16) SpotLightData spotLights[MAX_SPOT_LIGHTS];
+    alignas(4) int numSpotLights = 0;
+};
+
+// struct LightingUniformBlock {
+//     QVector3D dirLightDirection;
+//     float padding1;
+//     QVector3D dirLightAmbient;
+//     float padding2;
+//     QVector3D dirLightDiffuse;
+//     float padding3;
+//     QVector3D dirLightSpecular;
+//     float padding4;
+// };
 
 // struct alignas(16) LightingUniformBlock {
 //     QVector3D dirLightDirection;
@@ -168,6 +214,20 @@ const QVector<quint16> DEFAULT_CUBE_INDICES = {
     12, 13, 14, 14, 15, 12, // Right
     16, 17, 18, 18, 19, 16, // Top
     20, 21, 22, 22, 23, 20 // Bottom
+};
+
+const QVector<VertexData> DEFAULT_PYRAMID_VERTICES = {
+    {{0.0f, 1.0f, 0.0f}, {0.0f, 0.8f, 0.6f}, {0.5f, 1.0f}},
+    {{0.0f, 0.0f, 1.0f}, {0.0f, -0.4f, 0.8f}, {0.0f, 0.0f}},
+    {{0.9f, 0.0f, -0.5f}, {0.8f, -0.4f, -0.4f}, {1.0f, 0.0f}},
+    {{-0.9f, 0.0f, -0.5f}, {-0.8f, -0.4f, -0.4f}, {0.5f, 0.0f}}
+};
+
+const QVector<quint16> DEFAULT_PYRAMID_INDICES = {
+    0, 1, 2,
+    0, 2, 3,
+    0, 3, 1,
+    1, 3, 2
 };
 
 constexpr uchar WHITE_PIXEL[] = {255, 255, 255, 255};

@@ -40,7 +40,6 @@ protected:
 
     QScopedPointer<QRhiBuffer> mCameraUbo;
     QScopedPointer<QRhiBuffer> mLightingUbo;
-    QScopedPointer<QRhiShaderResourceBindings> mGlobalBindings;
     QSharedPointer<QRhiGraphicsPipeline> mBasePipeline;
     QSharedPointer<QRhiShaderResourceBindings> mPipelineSrbLayoutDef;
     QScopedPointer<QRhiShaderResourceBindings> mMaterialBindings;

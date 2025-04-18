@@ -18,7 +18,7 @@ struct MaterialComponent : Component {
     QVector3D emissiveFactor = {0.0f, 0.0f, 0.0f};
     float aoStrength = 1.0f;
     // PBR Texture Map Resource IDs
-    QString albedoMapResourceId = ":/img/Images/container2.png"/*DEFAULT_WHITE_TEXTURE_ID*/;
+    QString albedoMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
     QString specularMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
     QString normalMapResourceId = DEFAULT_NORMAL_MAP_ID;
     QString metallicRoughnessMapResourceId = DEFAULT_METALROUGH_TEXTURE_ID;
