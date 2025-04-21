@@ -52,7 +52,7 @@ public:
 
     void loadTexture(const QString &textureId);
 
-    void loadMaterial(const QString &materialId, MaterialComponent *definition);
+    void loadMaterial(const QString &materialId,const MaterialComponent *definition);
 
     RhiTextureGpuData *getTextureGpuData(const QString &textureId);
 

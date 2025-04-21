@@ -115,7 +115,7 @@ void ResourceManager::loadTexture(const QString &textureId) {
     mTextureCache.insert(textureId, std::move(texGpuData));
 }
 
-void ResourceManager::loadMaterial(const QString &materialId, MaterialComponent *definition) {
+void ResourceManager::loadMaterial(const QString &materialId,const MaterialComponent *definition) {
     if (mMaterialCache.contains(materialId) || !mRhi) return;
 
     RhiMaterialGpuData gpuData;

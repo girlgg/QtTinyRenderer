@@ -379,7 +379,6 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
     RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
     if (cubeMeshGpu && !cubeMeshGpu->ready) {
         mResourceManager->queueMeshUpdate(BUILTIN_CUBE_MESH_ID, batch, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
-        // queueMeshUpdate 内部会将 ready 设置为 true
     } else if (!cubeMeshGpu) {
         qWarning() << "Cube mesh GPU data is null during update.";
     }
