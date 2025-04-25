@@ -12,21 +12,13 @@ public:
         RGTextureRef sourceTexture;
     };
 
-    struct Output {
-        RGTextureRef swapChain;
-    };
-
-    // 声明依赖
     void setup(RGBuilder &builder) override;
 
     void execute(QRhiCommandBuffer *cmdBuffer) override;
 
-    PresentPass *setSource(RGTextureRef source);
-
 private:
     Input mInput;
-    Output mOutput;
-    QSharedPointer<QRhiGraphicsPipeline> mBlitPipeline;
-    QSharedPointer<QRhiSampler> mBlitSampler;
-    QSharedPointer<QRhiShaderResourceBindings> mBlitBindings;
+    RGPipelineRef mBlitPipelineRef;
+    RGSamplerRef mBlitSamplerRef;
+    RGShaderResourceBindingsRef mBlitBindingsLayoutRef;
 };

@@ -1,5 +1,4 @@
 #version 450 core
-// Or #version 310 es etc.
 
 // --- Inputs (from Vertex Shader) ---
 layout(location = 0) in vec3 fragPos;// World-space position

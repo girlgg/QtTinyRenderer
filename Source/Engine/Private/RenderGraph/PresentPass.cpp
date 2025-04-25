@@ -1,5 +1,7 @@
 #include "RenderGraph/PresentPass.h"
 
+#include "rhi/qrhi.h"
+#include "RenderGraph/RenderGraph.h"
 #include "RenderGraph/RGBuilder.h"
 #include "Resources/ShaderBundle.h"
 
@@ -10,109 +12,145 @@ PresentPass::~PresentPass() {
 }
 
 void PresentPass::setup(RGBuilder &builder) {
+    qInfo() << "PresentPass::setup -" << name();
     mRhi = builder.rhi();
+    if (!mRhi) {
+        qCritical("PresentPass::setup - RHI instance is null!");
+        return;
+    }
+    // --- 声明输入依赖 ---
+    mInput.sourceTexture = builder.readTexture("BaseColor");
     if (!mInput.sourceTexture.isValid()) {
-        qWarning("PresentPass setup: Input source texture is not valid.");
+        qCritical(
+            "PresentPass::setup - Failed to declare read dependency on texture 'BaseColor'. Did BasePass run setup?");
+        return;
+    }
+    qInfo() << "  Declared Read: RGTexture 'BaseColor'";
+
+    // --- 设置 Sampler ---
+    mBlitSamplerRef = builder.setupSampler("PresentSampler",
+                                           QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                           QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
+    if (!mBlitSamplerRef.isValid()) {
+        qCritical("PresentPass::setup - Failed to setup PresentSampler.");
+        return;
+    }
+    qInfo() << "  Setup Sampler: 'PresentSampler'";
+
+    // --- 设置 SRB 布局 ---
+    QVector<QRhiShaderResourceBinding> blitBindingsDesc = {
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr)
+    };
+    mBlitBindingsLayoutRef = builder.setupShaderResourceBindings("PresentPassBindings", blitBindingsDesc);
+    if (!mBlitBindingsLayoutRef.isValid()) {
+        qCritical("PresentPass::setup - Failed to setup PresentPassBindings.");
+        return;
+    }
+    qInfo() << "  Setup SRB Layout: 'PresentPassSRBLayout'";
+    // 加载Shaders
+    ShaderBundle::getInstance()->loadShader("Shaders/fullscreen", {
+                                                {":/shaders/fullscreen.vert.qsb", QRhiShaderStage::Vertex},
+                                                {
+                                                    ":/shaders/fullscreen.frag.qsb", QRhiShaderStage::Fragment
+                                                }
+                                            });
+    QRhiShaderStage vs = ShaderBundle::getInstance()->getShaderStage("Shaders/fullscreen", QRhiShaderStage::Vertex);
+    QRhiShaderStage fs = ShaderBundle::getInstance()->getShaderStage("Shaders/fullscreen", QRhiShaderStage::Fragment);
+    if (!vs.shader().isValid() || !fs.shader().isValid()) {
+        qFatal("PresentPass::setup - Failed to load fullscreen shaders.");
+        return;
+    }
+    qInfo() << "  Loaded Shaders: 'Shaders/fullscreen'";
+
+    // --- 设置图形管线 ---
+    RGRenderTargetRef swapChainProxyRT = builder.getRenderTarget("SwapChainRenderTargetProxy");
+    if (!swapChainProxyRT.isValid()) {
+        qCritical("PresentPass::setup - Failed to get valid SwapChainRenderTargetProxy resource or its descriptor.");
         return;
     }
 
-    // Import the swapchain render target's texture into the graph
-    // This assumes the swapchain RT is available via RHIWindow or similar
-    // We need a way to get the current QRhiTexture from the swapchain.
-    // Let's assume the RenderGraph is created with access to the swapchain RT.
-    // THIS PART IS TRICKY - how does the graph know the *current* swapchain image?
-    // Option 1: Graph::execute() takes the current RT.
-    // Option 2: RHIWindow updates an 'external' resource handle in the graph each frame.
-    // Let's assume Option 2 for now: Graph holds a special handle updated externally.
+    qInfo() << "  Obtained Ref to SwapChainRenderTargetProxy for pipeline setup.";
 
-    // For now, let's just assume we get the swapchain texture somehow via the builder
-    // This needs refinement based on how swapchain is managed with the graph.
-    // Placeholder: Assume builder can give us the imported swapchain texture handle.
-    // mOutput.swapChain = builder.getSwapChainOutput(); // Imaginary builder function
+    mBlitPipelineRef = builder.setupGraphicsPipeline("PresentPipeline",
+                                                     mBlitBindingsLayoutRef,
+                                                     swapChainProxyRT,
+                                                     {vs, fs},
+                                                     {},
+                                                     QRhiGraphicsPipeline::Triangles,
+                                                     QRhiGraphicsPipeline::None,
+                                                     QRhiGraphicsPipeline::CCW,
+                                                     false, false,
+                                                     QRhiGraphicsPipeline::Always
+    );
+    if (!mBlitPipelineRef.isValid()) {
+        qCritical("PresentPass::setup - Failed to setup graphics pipeline 'PresentPipeline'.");
+        return;
+    }
+    qInfo() << "  Setup Graphics Pipeline: 'PresentPipeline'";
 
-    // Alternative: The graph execution logic handles the final blit outside of a regular pass.
-    // Let's proceed with the pass approach for now, assuming builder imports it.
-    // This needs a mechanism in RHIWindow/ViewWindow to provide the current target.
-    // We'll simulate this by importing a placeholder. The actual target is set in execute().
-
-
-    // Setup blit pipeline (simple fullscreen textured quad)
-    // builder.setupSampler(mBlitSampler, "PresentSampler", QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
-    // QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
-
-    // Assuming ShaderManager provides fullscreen VS/FS
-    // QShader fsQuad = ShaderBundle::getInstance()->getShader("fullscreen.frag"); // Need a simple texture fragment shader
-    // QShader vsQuad = ShaderBundle::getInstance()->getShader("fullscreen.vert"); // Basic passthrough vertex shader
-    // if (!fsQuad.isValid() || !vsQuad.isValid()) {
-    // qWarning("PresentPass: Failed to load fullscreen shaders.");
-    // Create basic shaders programmatically as fallback?
-    return;
-    // }
-
-
-    // builder.setupShaderResourceBindings(mBlitBindings, "PresentBindings", {
-    // QRhiShaderResourceBinding::sampledTexture(
-    // 0, QRhiShaderResourceBinding::FragmentStage, mInput.sourceTexture.get(),
-    // mBlitSampler.get())
-    // });
-
-    // Need the render pass descriptor for the *swapchain* render target.
-    // This is another piece of information the graph needs access to.
-    // Assume it's passed during graph construction or accessible via RHIWindow.
-    // QRhiRenderPassDescriptor *swapChainRpDesc = builder.rhi()->getSwapChainRenderPassDescriptor();
-    // Need access to this
-
-    // if (!swapChainRpDesc) {
-    // qWarning("PresentPass::setup: Could not get swapchain render pass descriptor.");
-    // return;
-    // }
-
-    // QRhiGraphicsPipeline::State pipelineState;
-    // pipelineState.shaderResourceBindings = mBlitBindings.get();
-    // pipelineState.sampleCount = 1; // Swapchain is typically 1x MSAA
-    // pipelineState.renderPassDesc = swapChainRpDesc; // Use swapchain's RPDesc
-    // pipelineState.shaderStages = {
-    //     QRhiShaderStage(QRhiShaderStage::Vertex, vsQuad),
-    //     QRhiShaderStage(QRhiShaderStage::Fragment, fsQuad)
-    // };
-    // // Disable depth/stencil, blending for simple blit
-    // pipelineState.depthTest = false;
-    // pipelineState.depthWrite = false;
-    // pipelineState.stencilTest = false;
-    //
-    // mBlitPipeline = builder.setupGraphicsPipeline("PresentPipeline", pipelineState, swapChainRpDesc);
+    qInfo() << "PresentPass::setup finished successfully.";
 }
 
 void PresentPass::execute(QRhiCommandBuffer *cmdBuffer) {
-    // The actual swapchain render target is determined *just before* execution.
-    // The RenderGraph executor should provide the correct target.
-    // QRhiRenderTarget *currentSwapChainTarget = mRhi->getFrameSwapChainRenderTarget(); // Assumes RHI provides this
-    // if (!currentSwapChainTarget || !mBlitPipeline || !mBlitBindings || !mInput.sourceTexture.isValid()) {
-    // qWarning("PresentPass::execute prerequisites not met or swapchain target unavailable.");
-    // return;
-    // }
+    if (!mInput.sourceTexture.isValid()) {
+        qWarning("PresentPass: No valid source texture");
+        return;
+    }
 
-    // Update SRB if the input texture changed (shouldn't if graph manages it)
-    // Might need update if source texture handle points to a different underlying texture?
-    // For safety, maybe recreate/update bindings here - check if needed.
+    /// --- 获取所需 RHI 资源 ---
+    QRhiGraphicsPipeline *blitPipeline = mBlitPipelineRef.get();
+    QRhiSampler *blitSampler = mBlitSamplerRef.get();
+    QRhiTexture *sourceTexture = mInput.sourceTexture.get();
 
-    const QColor clearColor = QColor::fromRgbF(0.0f, 0.0f, 0.0f, 0.0f); // Don't clear if just blitting over
-    const QRhiDepthStencilClearValue dsClearValue = {}; // Don't clear depth/stencil
+    QRhiSwapChain *swapChain = mGraph->getCurrentSwapChain();
+    if (!blitPipeline || !blitSampler || !sourceTexture || !swapChain || !mRhi) {
+        qWarning(
+            "PresentPass::execute [%s] - Missing prerequisites (pipeline, sampler, source texture, swapchain, or RHI). Skipping.",
+            qPrintable(name()));
+        qWarning() << "  Pipeline:" << blitPipeline << "(Ref:" << mBlitPipelineRef.isValid() << ")";
+        qWarning() << "  Sampler:" << blitSampler << "(Ref:" << mBlitSamplerRef.isValid() << ")";
+        qWarning() << "  SrcTex:" << sourceTexture << "(Ref:" << mInput.sourceTexture.isValid() << ")";
+        qWarning() << "  SwapChain:" << swapChain;
+        qWarning() << "  RHI:" << mRhi;
+        return;
+    }
 
-    // cmdBuffer->beginPass(currentSwapChainTarget, clearColor, dsClearValue, nullptr, QRhiCommandBuffer::DontClearColor);
-    // Don't clear
-    //
-    // cmdBuffer->setGraphicsPipeline(mBlitPipeline.get());
-    // const QSize outputSize = currentSwapChainTarget->pixelSize();
-    // cmdBuffer->setViewport({0, 0, (float) outputSize.width(), (float) outputSize.height()});
-    // cmdBuffer->setScissor({0, 0, outputSize.width(), outputSize.height()});
-    // cmdBuffer->setShaderResources(mBlitBindings.get());
-    // cmdBuffer->draw(4); // Draw fullscreen quad
-    //
-    // cmdBuffer->endPass();
-}
+    QRhiRenderTarget *currentTarget = swapChain->currentFrameRenderTarget();
+    if (!currentTarget) {
+        qWarning("PresentPass::execute [%s] - Failed to get current frame render target from swapchain. Skipping.",
+                 qPrintable(name()));
+        return;
+    }
 
-PresentPass *PresentPass::setSource(RGTextureRef source) {
-    mInput.sourceTexture = source;
-    return this;
+    // --- Begin Render Pass on SwapChain Target ---
+    const QColor clearColor = QColor::fromRgbF(0.3f, 0.2f, 0.2f, 1.0f);
+    cmdBuffer->beginPass(currentTarget, clearColor, {1.0f, 0}, nullptr);
+
+    // --- Set Graphics 状态 ---
+    cmdBuffer->setGraphicsPipeline(blitPipeline);
+    const QSize outputPixelSize = currentTarget->pixelSize();
+    cmdBuffer->setViewport(QRhiViewport(0, 0, outputPixelSize.width(), outputPixelSize.height()));
+    cmdBuffer->setScissor({0, 0, outputPixelSize.width(), outputPixelSize.height()});
+
+    // --- 创建设置 Shader 资源 ---
+    QScopedPointer<QRhiShaderResourceBindings> srb(mRhi->newShaderResourceBindings());
+    if (!srb) {
+        qWarning("PresentPass::execute [%s] - Failed to create new QRhiShaderResourceBindings.", qPrintable(name()));
+        cmdBuffer->endPass();
+        return;
+    }
+    srb->setBindings({
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                                                  sourceTexture, blitSampler)
+    });
+    if (!srb->create()) {
+        qWarning("PresentPass::execute [%s] - Failed to create SRB for blit.", qPrintable(name()));
+        cmdBuffer->endPass();
+        return;
+    }
+    cmdBuffer->setShaderResources(srb.data());
+
+    cmdBuffer->draw(4);
+
+    cmdBuffer->endPass();
 }

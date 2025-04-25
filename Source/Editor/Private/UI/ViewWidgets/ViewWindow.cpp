@@ -12,6 +12,10 @@
 #include "Component/TransformComponent.h"
 #include "Component/RenderableComponent.h"
 #include "Graphics/RasterizeRenderSystem.h"
+#include "RenderGraph/BasePass.h"
+#include "RenderGraph/PresentPass.h"
+#include "RenderGraph/RenderGraph.h"
+#include "RenderGraph/RGBuilder.h"
 #include "Resources/ResourceManager.h"
 #include "Scene/Camera.h"
 #include "System/InputSystem.h"
@@ -21,34 +25,71 @@
 
 ViewWindow::ViewWindow(RhiHelper::InitParams inInitParmas)
     : RHIWindow(inInitParmas) {
-    mSigInit.request();
-
-    mResourceManager.reset(new ResourceManager());
-    mWorld.reset(new World());
-    mSystemManager.reset(new SystemManager());
-    mSystemManager->addSystem<CameraSystem>();
 }
 
 ViewWindow::~ViewWindow() {
 }
 
 void ViewWindow::onInit() {
+    qInfo("ViewWindow::onInit - Initializing scene and resources...");
+    mResourceManager = QSharedPointer<ResourceManager>::create();
     mResourceManager->initialize(mRhi);
 
-    mViewRenderSystem.reset(new RasterizeRenderSystem);
+    mWorld = QSharedPointer<World>::create();
+    mSystemManager = QSharedPointer<SystemManager>::create();
+    mSystemManager->addSystem<CameraSystem>();
 
     initializeScene();
+
+    qInfo("ViewWindow::onInit - Creating RenderGraph...");
+    if (!mSwapChainPassDesc) {
+        qFatal("Swapchain RenderPassDescriptor is null during ViewWindow::onInit!");
+        return;
+    }
+    mRenderGraph = QSharedPointer<RenderGraph>::create(
+        mRhi.get(),
+        mResourceManager,
+        mWorld,
+        mSwapChain->currentPixelSize(),
+        mSwapChainPassDesc.get()
+    );
+
+    defineRenderGraph(mRenderGraph.get());
+
+    qInfo("ViewWindow::onInit - Compiling initial RenderGraph...");
+    mRenderGraph->compile();
+
+    mSigInit.request();
+
+    qInfo("ViewWindow::onInit finished.");
+}
+
+void ViewWindow::onExit() {
+    qInfo("ViewWindow::onExit - Releasing RHI resources...");
+    mRenderGraph.reset();
+    mResourceManager->releaseRhiResources();
 }
 
 void ViewWindow::initializeScene() {
+    qInfo("ViewWindow::initializeScene - Setting up initial entities...");
     // 创建相机实体
     EntityID cameraEntity = mWorld->createEntity();
     mWorld->addComponent<TransformComponent>(cameraEntity, {});
+    // 初始化屏幕比例
     float aspectRatio = mSwapChain->currentPixelSize().width() / (float) mSwapChain->currentPixelSize().height();
     TransformComponent *camTransform = mWorld->getComponent<TransformComponent>(cameraEntity);
     camTransform->setPosition(QVector3D(0, 0, 5));
+    camTransform->rotate(180, QVector3D(0, 1, 0));
     mWorld->addComponent<CameraComponent>(cameraEntity, {{}, aspectRatio, 90.0f, 0.1f, 1000.0f});
     mWorld->addComponent<CameraControllerComponent>(cameraEntity, {});
+    mCameraEntity = cameraEntity;
+
+    mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID,
+                                       DEFAULT_CUBE_VERTICES,
+                                       DEFAULT_CUBE_INDICES);
+    mResourceManager->loadMeshFromData(BUILTIN_PYRAMID_MESH_ID,
+                                       DEFAULT_PYRAMID_VERTICES,
+                                       DEFAULT_PYRAMID_INDICES);
 
     const int numObjects = 20;
     for (int i = 0; i < numObjects; ++i) {
@@ -59,9 +100,9 @@ void ViewWindow::initializeScene() {
         mWorld->addComponent<RenderableComponent>(entity, {});
 
         TransformComponent *transform = mWorld->getComponent<TransformComponent>(entity);
-        transform->setPosition(QVector3D(QRandomGenerator::global()->generateDouble() * 10.0 - 10.0,
+        transform->setPosition(QVector3D(QRandomGenerator::global()->generateDouble() * 10.0 - 5.0,
                                          QRandomGenerator::global()->generateDouble() * 10.0 - 5.0,
-                                         QRandomGenerator::global()->generateDouble() * -10.0 - 5.0));
+                                         QRandomGenerator::global()->generateDouble() * -5.0 - 5.0));
         transform->setRotation(QQuaternion::fromEulerAngles(
             QRandomGenerator::global()->generateDouble() * 360.0,
             QRandomGenerator::global()->generateDouble() * 360.0,
@@ -127,8 +168,6 @@ void ViewWindow::initializeScene() {
 }
 
 void ViewWindow::initRhiResource() {
-    mViewRenderSystem->initialize(mRhi.get(), mSwapChain.get(), mSwapChainPassDesc.get(), mWorld, mResourceManager);
-
     setCameraPerspective();
 }
 
@@ -139,41 +178,81 @@ void ViewWindow::onRenderTick() {
     if (mSigInit.ensure()) {
         initRhiResource();
     }
+    // --- 更新ECS系统 ---
+    if (mSystemManager) {
+        mSystemManager->updateAll(mWorld.get(), mCpuFrameTime);
+    }
 
-    mSystemManager->updateAll(mWorld.get(), mCpuFrameTime);
+    // --- 设置和执行渲染图 ---
+    if (!mRhi || !mSwapChain || !mResourceManager || !mWorld) return;
 
-    QRhiRenderTarget *renderTarget = mSwapChain->currentFrameRenderTarget();
+    const QSize currentOutputSize = mSwapChain->currentPixelSize();
+    if (currentOutputSize.isEmpty()) return;
+
     QRhiCommandBuffer *cmdBuffer = mSwapChain->currentFrameCommandBuffer();
+    if (!cmdBuffer) {
+        qWarning("ViewWindow::onRenderTick - Failed to get command buffer.");
+        return;
+    }
 
-    QRhiResourceUpdateBatch *batch = mRhi->nextResourceUpdateBatch();
+    if (!mRenderGraph->isCompiled()) {
+        qWarning("ViewWindow::onRenderTick - RenderGraph is not compiled. Attempting recompile.");
+        if (!mRenderGraph->getOutputSize().isValid() || mRenderGraph->getOutputSize().width() <= 0 || mRenderGraph->
+            getOutputSize().height() <= 0) {
+            qWarning("  RenderGraph output size is invalid, trying to set from swapchain.");
+            if (!currentOutputSize.isEmpty()) {
+                mRenderGraph->setOutputSize(currentOutputSize);
+            } else {
+                qCritical("  Cannot recompile RenderGraph: Both RG output size and swapchain size are invalid!");
+                return;
+            }
+        }
+        mRenderGraph->compile();
+        if (!mRenderGraph->isCompiled()) {
+            qCritical("ViewWindow::onRenderTick - RenderGraph failed to recompile. Skipping execution.");
+            return;
+        }
+    }
 
-    mViewRenderSystem->submitResourceUpdates(batch);
-
-    cmdBuffer->resourceUpdate(batch);
-
-    const QColor clearColor = QColor::fromRgbF(0.2f, 0.2f, 0.2f, 1.0f);
-    const QRhiDepthStencilClearValue dsClearValue = {1.0f, 0};
-
-    cmdBuffer->beginPass(renderTarget, clearColor, dsClearValue, nullptr);
-
-    mViewRenderSystem->draw(cmdBuffer, mSwapChain->currentPixelSize());
-
-    cmdBuffer->endPass();
+    // 为当前帧创建渲染图
+    mRenderGraph->setCommandBuffer(cmdBuffer);
+    mRenderGraph->execute(mSwapChain.get());
 }
 
 void ViewWindow::onResize(const QSize &inSize) {
-    mViewRenderSystem->resize(inSize);
+    if (!mRhi || !mRenderGraph || inSize.isEmpty()) {
+        qWarning("ViewWindow::onResize - RHI or RenderGraph not ready, or size is empty. Skipping resize logic.");
+        return;
+    }
+    updateRenderGraphResources(inSize);
+
     setCameraPerspective();
 }
 
 void ViewWindow::setCameraPerspective() {
     QRhiRenderTarget *renderTarget = mSwapChain->currentFrameRenderTarget();
-    if (cameraEntity != INVALID_ENTITY) {
-        if (CameraComponent *camera = mWorld->getComponent<CameraComponent>(cameraEntity)) {
-            mWorld->getComponent<CameraComponent>(cameraEntity)->mAspect =
+    if (mCameraEntity != INVALID_ENTITY) {
+        if (CameraComponent *camera = mWorld->getComponent<CameraComponent>(mCameraEntity)) {
+            mWorld->getComponent<CameraComponent>(mCameraEntity)->mAspect =
                     renderTarget->pixelSize().width() / (float) renderTarget->pixelSize().height();
         }
     }
+}
+
+void ViewWindow::defineRenderGraph(RenderGraph *graph) {
+    BasePass *basePass = graph->addPass<BasePass>("BasePass");
+    PresentPass *presentPass = graph->addPass<PresentPass>("PresentPass");
+}
+
+void ViewWindow::updateRenderGraphResources(const QSize &newSize) {
+    if (!mRenderGraph) return;
+
+    qInfo() << "ViewWindow::updateRenderGraphResources - Updating RG for size" << newSize;
+    mRenderGraph->setOutputSize(newSize); // Inform RG about the new size
+
+    qInfo() << "ViewWindow::updateRenderGraphResources - Recompiling RenderGraph...";
+    mRenderGraph->compile();
+    qInfo() << "ViewWindow::updateRenderGraphResources - RenderGraph recompiled.";
 }
 
 ViewRenderWidget::ViewRenderWidget(QWidget *parent) {

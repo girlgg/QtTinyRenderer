@@ -17,22 +17,22 @@ void CameraSystem::update(World *world, float deltaTime) {
 
         QVector3D movement;
         if (InputSystem::get().getKey(Qt::Key_W)) {
-            movement -= transform->forward();
-        }
-        if (InputSystem::get().getKey(Qt::Key_S)) {
             movement += transform->forward();
         }
-        if (InputSystem::get().getKey(Qt::Key_A)) {
-            movement -= transform->right();
+        if (InputSystem::get().getKey(Qt::Key_S)) {
+            movement -= transform->forward();
         }
-        if (InputSystem::get().getKey(Qt::Key_D)) {
+        if (InputSystem::get().getKey(Qt::Key_A)) {
             movement += transform->right();
         }
+        if (InputSystem::get().getKey(Qt::Key_D)) {
+            movement -= transform->right();
+        }
         if (InputSystem::get().getKey(Qt::Key_E)) {
-            movement -= transform->up();
+            movement += transform->up();
         }
         if (InputSystem::get().getKey(Qt::Key_Q)) {
-            movement += transform->up();
+            movement -= transform->up();
         }
 
         if (!movement.isNull()) {
@@ -51,7 +51,7 @@ void CameraSystem::update(World *world, float deltaTime) {
             QPointF delta = InputSystem::get().consumeMouseDelta();
 
             controller->mYaw -= delta.x() * controller->mRotateSpeed;
-            controller->mPitch -= delta.y() * controller->mRotateSpeed;
+            controller->mPitch += delta.y() * controller->mRotateSpeed;
 
             controller->mPitch = std::clamp(controller->mPitch, controller->mMinPitch, controller->mMaxPitch);
 

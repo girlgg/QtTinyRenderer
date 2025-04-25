@@ -30,6 +30,7 @@ RHIWindow::RHIWindow(RhiHelper::InitParams inInitParmas)
 RHIWindow::~RHIWindow() {
     mDepthStencilBuffer.reset();
     mSwapChainPassDesc.reset();
+    mSwapChain.reset();
     mRhi.reset();
 }
 
@@ -39,16 +40,18 @@ void RHIWindow::exposeEvent(QExposeEvent *expose_event) {
             mRunning = true;
             initializeInternal();
         }
+        if (mNotExposed) {
+            // If it was previously not exposed
+            mNewlyExposed = true;
+        }
         mNotExposed = false;
+    } else {
+        mNotExposed = true;
     }
 
     const QSize surfaceSize = mHasSwapChain ? mSwapChain->surfacePixelSize() : QSize();
 
-    if ((!isExposed() || (mHasSwapChain && surfaceSize.isEmpty())) && mRunning) {
-        mNotExposed = true;
-    }
-
-    if (isExposed() && !surfaceSize.isEmpty()) {
+    if (isExposed() && !mNotExposed && !surfaceSize.isEmpty()) {
         renderInternal();
     }
 }
@@ -61,6 +64,7 @@ bool RHIWindow::event(QEvent *event) {
         case QEvent::PlatformSurface:
             if (static_cast<QPlatformSurfaceEvent *>(event)->surfaceEventType() ==
                 QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
+                qInfo("PlatformSurface: SurfaceAboutToBeDestroyed");
                 mHasSwapChain = false;
                 onExit();
                 mSwapChain.reset();
@@ -73,13 +77,20 @@ bool RHIWindow::event(QEvent *event) {
 }
 
 void RHIWindow::initializeInternal() {
+    qInfo("Initializing RHIWindow...");
     mRhi = RhiHelper::create(mInitParams.backend, mInitParams.rhiFlags, this);
     if (!mRhi)
         qFatal("Failed to create RHI backend");
-    mSwapChain.reset(mRhi->newSwapChain());
-    mDepthStencilBuffer.reset(mRhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, QSize(), mInitParams.sampleCount,
-                                                    QRhiRenderBuffer::UsedWithSwapChainOnly));
 
+    mSwapChain.reset(mRhi->newSwapChain());
+    QSize initialSize = size().isValid() ? size() * devicePixelRatio() : QSize(800, 600);
+    mDepthStencilBuffer.reset(mRhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, initialSize,
+                                                    mInitParams.sampleCount,
+                                                    QRhiRenderBuffer::UsedWithSwapChainOnly));
+    if (!mDepthStencilBuffer || !mDepthStencilBuffer->create()) {
+        qFatal("Failed to create depth stencil buffer");
+    }
+    mDepthStencilBuffer->setName(QByteArrayLiteral("MainDepthStencilBuffer"));
     // 绑定渲染目标窗口
     mSwapChain->setWindow(this);
     // 设置深度模板缓冲区
@@ -88,61 +99,80 @@ void RHIWindow::initializeInternal() {
     mSwapChain->setSampleCount(mInitParams.sampleCount);
     // 设置 swapchain 的标志，比如是否启用 VSync、是否支持 sRGB 等。
     mSwapChain->setFlags(mInitParams.swapChainFlags);
+
     // 创建一个与当前 swapchain 配置兼容的 render pass 描述对象。
     mSwapChainPassDesc.reset(mSwapChain->newCompatibleRenderPassDescriptor());
+    if (!mSwapChainPassDesc) {
+        qFatal("Failed to create swap chain render pass descriptor");
+    }
+    mSwapChainPassDesc->setName(QByteArrayLiteral("SwapChainRenderPassDesc"));
     // 将刚刚创建的 render pass descriptor 设置给 swapchain。
     mSwapChain->setRenderPassDescriptor(mSwapChainPassDesc.get());
+
     // 创建或者根据当前窗口尺寸调整 swapchain。
-    mSwapChain->createOrResize();
+    mHasSwapChain = mSwapChain->createOrResize();
+    if (!mHasSwapChain) {
+        qWarning("Initial SwapChain creation failed!");
+    } else {
+        qInfo() << "Initial SwapChain created/resized to" << mSwapChain->currentPixelSize();
+    }
 
     onInit();
-
-    mHasSwapChain = true;
 
     if (mInitParams.enableStat) {
         mCpuFrameTimer.start();
     }
+    qInfo("RHIWindow Initialization finished.");
 }
 
 void RHIWindow::renderInternal() {
     if (!mHasSwapChain || mNotExposed) {
+        if (mNotExposed) requestUpdate();
         return;
     }
-    // 等待上一帧完成才能绘制下一帧，否则会报错
+    // 等待上一帧绘制完成
     mRhi->finish();
 
-    if (mSwapChain->currentPixelSize() != mSwapChain->surfacePixelSize() || mNewlyExposed) {
+    if (mSwapChain->currentPixelSize() != mSwapChain->surfacePixelSize() || mNewlyExposed || mNeedResize) {
+        qInfo() << "Resize detected/needed. Current:" << mSwapChain->currentPixelSize() << "Surface:" << mSwapChain->
+                surfacePixelSize() << "NewlyExposed:" << mNewlyExposed << "NeedResize:" << mNeedResize;
         resizeInternal();
-        if (!mHasSwapChain)
+        if (!mHasSwapChain) {
+            qWarning("Resize failed, skipping frame.");
             return;
-        mNewlyExposed = false;
-    }
-
-    if (mNeedResize && !(QGuiApplication::mouseButtons() & Qt::LeftButton)) {
+        }
         onResize(mSwapChain->currentPixelSize());
+        mNewlyExposed = false;
         mNeedResize = false;
     }
-
-    QRhi::FrameOpResult r = mRhi->beginFrame(mSwapChain.get(), mInitParams.beginFrameFlags);
-    if (r == QRhi::FrameOpSwapChainOutOfDate) {
-        resizeInternal();
-        if (!mHasSwapChain)
-            return;
-        if (mInitParams.enableStat) {
-            CpuFrameCounter = 0;
-            mCpuFrameTimer.restart();
-        }
-        r = mRhi->beginFrame(mSwapChain.get());
-    }
-    if (r != QRhi::FrameOpSuccess) {
+    const QSize currentOutputSize = mSwapChain->currentPixelSize();
+    if (currentOutputSize.isEmpty()) {
+        qWarning("Current output size is empty, requesting update.");
         requestUpdate();
         return;
     }
-
+    // --- Begin Frame ---
+    QRhi::FrameOpResult r = mRhi->beginFrame(mSwapChain.get(), mInitParams.beginFrameFlags);
+    if (r == QRhi::FrameOpSwapChainOutOfDate) {
+        qInfo("BeginFrame: SwapChain out of date, forcing resize.");
+        resizeInternal();
+        if (!mHasSwapChain) return;
+        onResize(mSwapChain->currentPixelSize());
+        r = mRhi->beginFrame(mSwapChain.get());
+    }
+    if (r != QRhi::FrameOpSuccess) {
+        qWarning("BeginFrame failed with status %d, requesting update.", static_cast<int>(r));
+        requestUpdate();
+        return;
+    }
+    // --- Frame Context ---
+    QRhiCommandBuffer *cmdBuffer = mSwapChain->currentFrameCommandBuffer();
+    // --- 更新统计 ---
     if (mInitParams.enableStat) {
         CpuFrameCounter += 1;
-        mCpuFrameTime = mCpuFrameTimer.elapsed();
-        TimeCounter += mCpuFrameTime;
+        float elapsed = mCpuFrameTimer.elapsed();
+        mCpuFrameTime = elapsed;
+        TimeCounter += elapsed;
         mCpuFrameTimer.restart();
 
         if (TimeCounter > 1000) {
@@ -156,10 +186,7 @@ void RHIWindow::renderInternal() {
 
     mRhi->endFrame(mSwapChain.get(), mInitParams.endFrameFlags);
 
-    if (!mInitParams.swapChainFlags.testFlag(QRhiSwapChain::NoVSync))
-        requestUpdate();
-    else
-        QCoreApplication::postEvent(this, new QEvent(QEvent::UpdateRequest));
+    QCoreApplication::postEvent(this, new QEvent(QEvent::UpdateRequest));
 }
 
 void RHIWindow::resizeInternal() {

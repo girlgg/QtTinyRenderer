@@ -21,7 +21,6 @@ struct RhiMeshGpuData {
 struct RhiTextureGpuData {
     QSharedPointer<QRhiTexture> texture;
     QImage sourceImage;
-    QString id;
     bool ready = false;
 };
 
@@ -37,11 +36,15 @@ struct RhiMaterialGpuData {
 
 class ResourceManager {
 public:
+    ~ResourceManager();
+
     void initialize(QSharedPointer<QRhi> rhi);
 
     void loadDefaultResources();
 
     void releaseRhiResources();
+
+    // --- Mesh Management ---
 
     void loadMeshFromData(const QString &id, const QVector<VertexData> &vertices, const QVector<quint16> &indices);
 
@@ -50,24 +53,33 @@ public:
     bool queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch *batch, const QVector<VertexData> &vertices,
                          const QVector<quint16> &indices);
 
+    // --- Texture Management ---
+
     void loadTexture(const QString &textureId);
 
-    void loadMaterial(const QString &materialId,const MaterialComponent *definition);
-
     RhiTextureGpuData *getTextureGpuData(const QString &textureId);
+
+    bool queueTextureUpdate(const QString &textureId, QRhiResourceUpdateBatch *batch);
+
+    // --- Material Management ---
+
+    void loadMaterial(const QString &materialId, const MaterialComponent *definition);
 
     RhiMaterialGpuData *getMaterialGpuData(const QString &materialId);
 
     bool queueMaterialUpdate(const QString &textureId, QRhiResourceUpdateBatch *batch);
 
+    // --- Helpers ---
+
     QString generateMaterialCacheKey(const MaterialComponent *definition);
 
-    RhiMaterialGpuData *getOrLoadTextureEntry(const QString &textureResourceId);
-
 private:
+    void loadAndQueueDefaultTextures(QRhiResourceUpdateBatch *initialBatch);
+
     void createDefaultTextures();
 
     QSharedPointer<QRhi> mRhi;
+
     QHash<QString, RhiMeshGpuData> mMeshCache;
     QHash<QString, RhiTextureGpuData> mTextureCache;
     QHash<QString, RhiMaterialGpuData> mMaterialCache;

@@ -3,6 +3,7 @@
 #include <QSharedPointer>
 #include <QString>
 
+class RenderGraph;
 class RGBuilder;
 class ResourceManager;
 class World;
@@ -22,13 +23,11 @@ public:
 
     virtual void execute(QRhiCommandBuffer *cmdBuffer) = 0;
 
-    // TODO: Add input/output resource tracking
-
 protected:
     QString mName;
     QRhi *mRhi = nullptr;
     QSharedPointer<ResourceManager> mResourceManager;
     QSharedPointer<World> mWorld;
+    RenderGraph* mGraph = nullptr;
     friend class RenderGraph;
-    friend class RGBuilder;
 };

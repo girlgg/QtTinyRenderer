@@ -8,6 +8,7 @@ struct InstanceUniformBlock;
 class BasePass : public RGPass {
 public:
     BasePass(const QString &name);
+    ~BasePass() override = default;
 
     struct Input {
         // base pass 无输入，从场景数据读取
@@ -15,7 +16,7 @@ public:
 
     struct Output {
         RGTextureRef baseColor;
-        RGTextureRef depthStencil;
+        RGRenderBufferRef depthStencil;
     };
 
     // 声明资源和管道
@@ -24,9 +25,9 @@ public:
     // 记录绘制目录
     void execute(QRhiCommandBuffer *cmdBuffer) override;
 
-private:
-    void createPipelines(RGBuilder &builder, QRhiRenderPassDescriptor *rpDesc);
+    Output getOutput() const { return mOutput; }
 
+private:
     void updateUniforms(QRhiResourceUpdateBatch *batch);
 
     void uploadInstanceData(QRhiResourceUpdateBatch *batch, int instanceCount);
@@ -34,12 +35,14 @@ private:
     void findActiveCamera();
 
     Output mOutput;
+
+    RGRenderTargetRef mRenderTargetRef;
     RGBufferRef mCameraUboRef;
     RGBufferRef mLightingUboRef;
     RGBufferRef mInstanceUboRef;
-    QSharedPointer<QRhiGraphicsPipeline> mPipeline;
-    QSharedPointer<QRhiShaderResourceBindings> mBaseSrbLayout;
-    QSharedPointer<QRhiSampler> mDefaultSampler;
+    RGPipelineRef mPipelineRef;
+    RGShaderResourceBindingsRef mBaseSrbLayoutRef;
+    RGSamplerRef mDefaultSamplerRef;
 
     // data buffer (CPU)
     QVector<InstanceUniformBlock> mInstanceDataBuffer;

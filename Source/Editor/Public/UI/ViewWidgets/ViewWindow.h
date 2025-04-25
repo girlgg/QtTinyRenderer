@@ -4,6 +4,7 @@
 #include "ECSCore.h"
 #include "UI/ViewWidgets/RHIWindow.h"
 
+class RenderGraph;
 class SystemManager;
 class World;
 class ResourceManager;
@@ -26,6 +27,8 @@ signals:
 protected:
     void onInit() override;
 
+    void onExit() override;
+
     void initializeScene();
 
     void initRhiResource();
@@ -34,21 +37,25 @@ protected:
 
     void onResize(const QSize &inSize) override;
 
-
     void setCameraPerspective();
+
+    virtual void defineRenderGraph(RenderGraph *graph);
+
+    void updateRenderGraphResources(const QSize& newSize);
 
 private:
     QRhiSignal mSigInit;
 
     QSharedPointer<ResourceManager> mResourceManager;
-    QScopedPointer<RasterizeRenderSystem> mViewRenderSystem;
-    QScopedPointer<SystemManager> mSystemManager;
+    QSharedPointer<SystemManager> mSystemManager;
 
     QSharedPointer<World> mWorld;
 
+    QSharedPointer<RenderGraph> mRenderGraph;
+
     QPoint mLastMousePos;
 
-    EntityID cameraEntity;
+    EntityID mCameraEntity;
 
     QSet<Qt::Key> mPressedKeys;
     bool mCaptureMouse = false;
