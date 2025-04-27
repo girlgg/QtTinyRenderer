@@ -1,5 +1,4 @@
 #include <QApplication>
-#include <QPushButton>
 #include <QDirIterator>
 #include "UI/EditorMainWindow.h"
 #include <QMutex>
@@ -70,10 +69,9 @@ void customDebug(QtMsgType type, const QMessageLogContext &context, const QStrin
 int main(int argc, char *argv[]) {
     logFile.setFileName("app.log");
     logFile.open(QIODevice::Append | QIODevice::Text);
-
     currentLogLevel = LogWarning;
-
     qInstallMessageHandler(customDebug);
+
     QApplication app(argc, argv);
 
     EditorMainWindow Window;

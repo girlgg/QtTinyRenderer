@@ -16,6 +16,9 @@ struct RhiMeshGpuData {
     qint32 indexCount = 0;
     qint32 vertexCount = 0;
     bool ready = false;
+
+    QVector<VertexData> sourceVertices;
+    QVector<quint16> sourceIndices;
 };
 
 struct RhiTextureGpuData {
@@ -50,8 +53,7 @@ public:
 
     RhiMeshGpuData *getMeshGpuData(const QString &id);
 
-    bool queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch *batch, const QVector<VertexData> &vertices,
-                         const QVector<quint16> &indices);
+    bool queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch *batch);
 
     // --- Texture Management ---
 

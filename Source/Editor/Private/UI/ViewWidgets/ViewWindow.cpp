@@ -25,6 +25,9 @@
 
 ViewWindow::ViewWindow(RhiHelper::InitParams inInitParmas)
     : RHIWindow(inInitParmas) {
+    mResourceManager = QSharedPointer<ResourceManager>::create();
+    mWorld = QSharedPointer<World>::create();
+    mSystemManager = QSharedPointer<SystemManager>::create();
 }
 
 ViewWindow::~ViewWindow() {
@@ -32,11 +35,8 @@ ViewWindow::~ViewWindow() {
 
 void ViewWindow::onInit() {
     qInfo("ViewWindow::onInit - Initializing scene and resources...");
-    mResourceManager = QSharedPointer<ResourceManager>::create();
-    mResourceManager->initialize(mRhi);
 
-    mWorld = QSharedPointer<World>::create();
-    mSystemManager = QSharedPointer<SystemManager>::create();
+    mResourceManager->initialize(mRhi);
     mSystemManager->addSystem<CameraSystem>();
 
     initializeScene();
@@ -91,7 +91,7 @@ void ViewWindow::initializeScene() {
                                        DEFAULT_PYRAMID_VERTICES,
                                        DEFAULT_PYRAMID_INDICES);
 
-    const int numObjects = 20;
+    const int numObjects = 2;
     for (int i = 0; i < numObjects; ++i) {
         EntityID entity = mWorld->createEntity();
         mWorld->addComponent<TransformComponent>(entity, {});
@@ -165,6 +165,7 @@ void ViewWindow::initializeScene() {
                                                  {}
                                              });
     }
+    emit sceneInitialized();
 }
 
 void ViewWindow::initRhiResource() {
@@ -270,10 +271,19 @@ ViewRenderWidget::ViewRenderWidget(QWidget *parent) {
     mViewLayout->addWidget(mViewWindowContainer);
 
     connect(mViewRenderWindow, &ViewWindow::fpsUpdated, this, &ViewRenderWidget::onFpsUpdated);
+    connect(mViewRenderWindow, &ViewWindow::sceneInitialized, this, &ViewRenderWidget::sceneInitialized);
 }
 
 ViewRenderWidget::~ViewRenderWidget() {
     delete mViewRenderWindow;
+}
+
+QSharedPointer<World> ViewRenderWidget::getWorld() const {
+    return mViewRenderWindow ? mViewRenderWindow->getWorld() : nullptr;
+}
+
+QSharedPointer<ResourceManager> ViewRenderWidget::getResourceManager() const {
+    return mViewRenderWindow ? mViewRenderWindow->getResourceManager() : nullptr;
 }
 
 void ViewRenderWidget::onFpsUpdated(float deltaTime, int fps) {

@@ -21,7 +21,12 @@ public:
 
     ~ViewWindow() override;
 
+    QSharedPointer<World> getWorld() const { return mWorld; }
+    QSharedPointer<ResourceManager> getResourceManager() const { return mResourceManager; }
+
 signals:
+    void sceneInitialized();
+
     void fpsUpdated(float deltaTime, int fps);
 
 protected:
@@ -41,7 +46,7 @@ protected:
 
     virtual void defineRenderGraph(RenderGraph *graph);
 
-    void updateRenderGraphResources(const QSize& newSize);
+    void updateRenderGraphResources(const QSize &newSize);
 
 private:
     QRhiSignal mSigInit;
@@ -69,8 +74,14 @@ public:
 
     ~ViewRenderWidget() override;
 
+    QSharedPointer<World> getWorld() const;
+
+    QSharedPointer<ResourceManager> getResourceManager() const;
+
 signals:
     void fpsUpdated(float deltaTime, int fps);
+
+    void sceneInitialized();
 
 public slots:
     void onFpsUpdated(float deltaTime, int fps);

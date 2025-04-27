@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.30)
 
 project(qtrenderer LANGUAGES CXX)
 
-set(CMAKE_PREFIX_PATH "C:/Dev/qt6/qtbase")
+set(CMAKE_PREFIX_PATH "C:/Dev/qt6/qtbase;C:/Users/g/.vcpkg-clion/vcpkg/installed/x64-mingw-dynamic/share")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)

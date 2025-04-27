@@ -2,7 +2,11 @@
 
 #include <QWidget>
 #include <QVector3D>
+#include <math3d/qquaternion.h>
 
+#include "ECSCore.h"
+
+class World;
 QT_BEGIN_NAMESPACE
 
 namespace Ui {
@@ -10,6 +14,14 @@ namespace Ui {
 }
 
 QT_END_NAMESPACE
+
+struct TransformUpdateData {
+    QVector3D position;
+    QQuaternion rotation;
+    QVector3D scale;
+};
+
+Q_DECLARE_METATYPE(TransformUpdateData);
 
 class TransformEditor : public QWidget {
     Q_OBJECT
@@ -19,17 +31,17 @@ public:
 
     ~TransformEditor() override;
 
-    void setCurrentObject(int objId);
+    void setWorld(QSharedPointer<World> world);
 
-    int currentObjectId() const { return m_currentObjId; }
+public slots:
+    void setCurrentObject(EntityID objId);
+private slots:
+    void updateTransform();
+    void updateFromSceneManager();
+
 signals:
-    void transformChanged(int objId, QVector3D newLocation);
+    void transformChanged(EntityID objId, const TransformUpdateData& data);
 
-    public slots:
-        void updateFromSceneManager();
-
-    private slots:
-        void updateTransform();
 
 private:
     void setupConnections();
@@ -37,5 +49,7 @@ private:
     void blockUIUpdates(bool block);
 
     Ui::TransformEditor *ui;
-    int m_currentObjId = -1;
+    QSharedPointer<World> mWorld;
+    int mCurrentObjId = INVALID_ENTITY;
+    bool mUpdatingUI = false;
 };

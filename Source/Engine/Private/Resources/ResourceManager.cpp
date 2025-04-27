@@ -56,24 +56,32 @@ void ResourceManager::loadMeshFromData(const QString &id, const QVector<VertexDa
     if (mMeshCache.count(id) || !mRhi) return;
 
     RhiMeshGpuData gpuData;
+    gpuData.vertexCount = vertices.size();
+    gpuData.indexCount = indices.size();
+    const quint32 vertexBufferSize = vertices.size() * sizeof(VertexData);
+    const quint32 indexBufferSize = indices.size() * sizeof(quint16);
+
     // --- 矫正size ---
     gpuData.vertexBuffer.reset(mRhi->newBuffer(QRhiBuffer::Immutable,
                                                QRhiBuffer::VertexBuffer,
-                                               vertices.size() * sizeof(VertexData)));
+                                               vertexBufferSize));
     if (!gpuData.vertexBuffer || !gpuData.vertexBuffer->create()) {
         qWarning() << "Failed to create vertex buffer for" << id;
         return;
     }
+    gpuData.vertexBuffer->setName(id.toUtf8() + "_VB");
 
     gpuData.indexBuffer.reset(mRhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::IndexBuffer,
-                                              indices.size() * sizeof(quint16)));
+                                              indexBufferSize));
     if (!gpuData.indexBuffer || !gpuData.indexBuffer->create()) {
         qWarning() << "Failed to create index buffer for" << id;
         gpuData.vertexBuffer.reset();
         return;
     }
+    gpuData.indexBuffer->setName(id.toUtf8() + "_IB");
 
-    gpuData.indexCount = indices.size();
+    gpuData.sourceVertices = vertices;
+    gpuData.sourceIndices = indices;
     gpuData.ready = false;
 
     mMeshCache.insert(id, std::move(gpuData));
@@ -85,17 +93,38 @@ RhiMeshGpuData *ResourceManager::getMeshGpuData(const QString &id) {
     return nullptr;
 }
 
-bool ResourceManager::queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch *batch,
-                                      const QVector<VertexData> &vertices, const QVector<quint16> &indices) {
+bool ResourceManager::queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch *batch) {
     if (!mRhi || !batch) return false;
     RhiMeshGpuData *gpuData = getMeshGpuData(id);
-    if (!gpuData || gpuData->ready) {
+    if (!gpuData) {
+        qWarning() << "ResourceManager::queueMeshUpdate - Mesh GPU data for ID '" << id << "' not found.";
+        return false;
+    }
+
+    if (gpuData->ready) {
         return true;
     }
 
-    batch->uploadStaticBuffer(gpuData->vertexBuffer.get(), 0, vertices.size() * sizeof(VertexData),
-                              vertices.constData());
-    batch->uploadStaticBuffer(gpuData->indexBuffer.get(), 0, indices.size() * sizeof(quint16), indices.constData());
+    if (!gpuData->vertexBuffer || !gpuData->indexBuffer) {
+        qWarning() << "ResourceManager::queueMeshUpdate - Buffers for mesh '" << id << "' are null. Cannot upload.";
+        return false;
+    }
+    if (gpuData->sourceVertices.isEmpty() || gpuData->sourceIndices.isEmpty()) {
+        qWarning() << "ResourceManager::queueMeshUpdate - Source vertex or index data missing for mesh '" << id <<
+                "'. Cannot upload.";
+        return false;
+    }
+
+    batch->uploadStaticBuffer(gpuData->vertexBuffer.get(), 0, gpuData->sourceVertices.size() * sizeof(VertexData),
+                              gpuData->sourceVertices.constData());
+    batch->uploadStaticBuffer(gpuData->indexBuffer.get(), 0, gpuData->sourceIndices.size() * sizeof(quint16),
+                              gpuData->sourceIndices.constData());
+
+    gpuData->ready = true;
+    gpuData->sourceVertices.clear();
+    gpuData->sourceVertices.squeeze();
+    gpuData->sourceIndices.clear();
+    gpuData->sourceIndices.squeeze();
 
     gpuData->ready = true;
     return true;

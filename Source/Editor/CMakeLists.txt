@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_AUTOMOC ON)
@@ -7,6 +7,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui ShaderTools)
+find_package(assimp CONFIG REQUIRED)
 
 file(GLOB_RECURSE EDITOR_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/Public/*.cpp
@@ -102,6 +103,37 @@ if (TARGET Qt6::ShaderTools)
     target_sources(Editor PRIVATE ${SHADER_RESOURCE})
 endif ()
 
+# 自动复制 Assimp 的 DLL
+if (WIN32 AND TARGET assimp::assimp)
+    # 判断 Debug / Release 构建类型
+    if (CMAKE_BUILD_TYPE MATCHES "Debug")
+        get_target_property(ASSIMP_LOCATION assimp::assimp IMPORTED_LOCATION_DEBUG)
+    else()
+        get_target_property(ASSIMP_LOCATION assimp::assimp IMPORTED_LOCATION_RELEASE)
+    endif()
+
+    if (NOT ASSIMP_LOCATION)
+        get_target_property(ASSIMP_LOCATION assimp::assimp IMPORTED_LOCATION)
+    endif()
+
+    if (ASSIMP_LOCATION)
+        get_filename_component(ASSIMP_DLL_DIR "${ASSIMP_LOCATION}" DIRECTORY)
+        file(GLOB ASSIMP_ALL_DLLS "${ASSIMP_DLL_DIR}/lib*.dll")
+
+        if (ASSIMP_ALL_DLLS)
+            add_custom_command(TARGET Editor POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${ASSIMP_ALL_DLLS}
+                    $<TARGET_FILE_DIR:Editor>
+                    COMMENT "Copying Assimp and related DLLs to runtime directory."
+            )
+        else()
+            message(WARNING "No DLLs found in: ${ASSIMP_DLL_DIR}")
+        endif()
+    else()
+        message(WARNING "Failed to get Assimp import location.")
+    endif()
+endif()
 
 target_link_libraries(Editor PRIVATE
         Common
@@ -109,6 +141,7 @@ target_link_libraries(Editor PRIVATE
         Qt6::Core
         Qt6::Widgets
         Qt6::GuiPrivate
+        assimp::assimp
 )
 
 target_include_directories(Editor PUBLIC

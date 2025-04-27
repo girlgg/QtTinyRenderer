@@ -289,30 +289,47 @@ void BasePass::execute(QRhiCommandBuffer *cmdBuffer) {
                 continue;
             }
             if (!meshGpu->ready) {
-                bool queued = false;
-                if (meshId == BUILTIN_CUBE_MESH_ID) {
-                    queued = mResourceManager->queueMeshUpdate(meshId, resourceBatch, DEFAULT_CUBE_VERTICES,
-                                                               DEFAULT_CUBE_INDICES);
-                } else if (meshId == BUILTIN_PYRAMID_MESH_ID) {
-                    queued = mResourceManager->queueMeshUpdate(meshId, resourceBatch, DEFAULT_PYRAMID_VERTICES,
-                                                               DEFAULT_PYRAMID_INDICES);
-                } else {
-                    qWarning(
-                        "BasePass::execute [%s] - Mesh '%s' is not ready, but no source data provided to queueMeshUpdate here. Ensure loadMeshFromData was called.",
-                        qPrintable(name()), qPrintable(meshId));
-                    continue;
-                }
+                qInfo() << "BasePass::execute [" << name() << "] - Mesh '" << meshId <<
+                        "' not ready, queuing update...";
+                bool queued = mResourceManager->queueMeshUpdate(meshId, resourceBatch);
                 if (!queued) {
                     qWarning("BasePass::execute [%s] - Failed to queue mesh update for '%s'.", qPrintable(name()),
                              qPrintable(meshId));
                     continue;
                 }
-                qInfo() << "Queued mesh upload for:" << meshId;
+                meshGpu = mResourceManager->getMeshGpuData(meshId);
+                if (!meshGpu || !meshGpu->ready) {
+                    qWarning(
+                        "BasePass::execute [%s] - Mesh '%s' still not ready after queueing update. Skipping entity %lld.",
+                        qPrintable(name()), qPrintable(meshId), entity);
+                    continue;
+                }
+                qInfo() << "BasePass::execute [" << name() << "] - Mesh '" << meshId <<
+                        "' successfully queued and marked ready.";
             }
-            if (meshGpu && meshGpu->ready && matGpu && matGpu->ready) {
+            if (meshGpu && meshGpu->ready && matGpu && matGpu->ready && albedoTexGpu && albedoTexGpu->ready &&
+                meshGpu->vertexBuffer && meshGpu->indexBuffer) {
                 entitiesByMeshThenMaterial[meshId][materialCacheKey].append(entity);
-                mInstanceDataBuffer[currentInstanceIndex].model = tfComp->worldMatrix().toGenericMatrix<4, 4>();
+                if (tfComp) {
+                    mInstanceDataBuffer[currentInstanceIndex].model = tfComp->worldMatrix().toGenericMatrix<4, 4>();
+                } else {
+                    qWarning() << "BasePass::execute - Entity" << entity <<
+                            "missing TransformComponent when preparing instance data.";
+                    continue;
+                }
                 currentInstanceIndex++;
+            } else {
+                if (!meshGpu->ready)
+                    qWarning() << "Skipping entity" << entity << "because mesh" << meshId << "not ready.";
+                else if (!matGpu || !matGpu->ready)
+                    qWarning() << "Skipping entity" << entity << "because material" << materialCacheKey << "not ready.";
+                else if (!albedoTexGpu || !albedoTexGpu->ready)
+                    qWarning() << "Skipping entity" << entity << "because albedo texture" << (
+                        matGpu ? matGpu->albedoId : "N/A") << "not ready.";
+                else if (!meshGpu->vertexBuffer)
+                    qWarning() << "Skipping entity" << entity << "because mesh" << meshId << "vertex buffer is null.";
+                else if (!meshGpu->indexBuffer)
+                    qWarning() << "Skipping entity" << entity << "because mesh" << meshId << "index buffer is null.";
             }
         } else if (meshComp && meshComp->meshResourceId.isEmpty()) {
             qWarning("Entity %lld has MeshComponent but no meshResourceId set.", entity);

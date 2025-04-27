@@ -3,8 +3,13 @@
 #include <QSplitter>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <QFileDialog>
 
 #include "UI/EditorMainWindow.h"
+
+#include "Component/TransformComponent.h"
+#include "Scene/ModelImporter.h"
+#include "Scene/World.h"
 #include "UI/EdgesWidgets/EditorStatusBar.h"
 #include "UI/EdgesWidgets/EditorToolBar.h"
 #include "UI/EdgesWidgets/EditorDockWidget.h"
@@ -15,15 +20,117 @@
 EditorMainWindow::EditorMainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1080, 680);
 
-    InitEdgeLayout();
     InitContent();
+    if (ViewCentralWidget) {
+        mWorld = ViewCentralWidget->getWorld();
+        mResourceManager = ViewCentralWidget->getResourceManager();
+        if (!mWorld || !mResourceManager) {
+            qCritical("Failed to get World or ResourceManager from ViewRenderWidget!");
+        }
+        connect(ViewCentralWidget, &ViewRenderWidget::sceneInitialized, this, &EditorMainWindow::onSceneInitialized);
+    } else {
+        qCritical("ViewCentralWidget is null!");
+    }
 
+    InitEdgeLayout();
     if (ViewCentralWidget && BottomStatusBar) {
         connect(ViewCentralWidget, &ViewRenderWidget::fpsUpdated, BottomStatusBar, &EditorStatusBar::fpsUpdate);
+    }
+
+    setupModelImporter();
+
+    connect(ObjectImportAction, &QAction::triggered, this, &EditorMainWindow::onImportModel);
+
+    connect(SceneTree, &SceneTreeWidget::objectSelected,
+            ObjectTransformEditor, &TransformEditor::setCurrentObject);
+
+    connect(ObjectTransformEditor, &TransformEditor::transformChanged,
+            this, &EditorMainWindow::updateTransformFromEditor);
+
+    if (ObjectTransformEditor) {
+        ObjectTransformEditor->setWorld(mWorld);
+    }
+    if (SceneTree) {
+        SceneTree->setWorld(mWorld);
     }
 }
 
 EditorMainWindow::~EditorMainWindow() {
+}
+
+void EditorMainWindow::onImportModel() {
+    if (!mModelImporter) {
+        qCritical("Model importer is null.");
+        return;
+    }
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        tr("Import 3D Model"),
+        "",
+        tr("3D Models (*.obj *.fbx *.gltf *.glb *.dae *.blend *.3ds);;All Files (*)")
+    );
+
+    if (!filePath.isEmpty()) {
+        qInfo() << "Attempting to import model:" << filePath;
+        mModelImporter->importModel(filePath);
+    }
+}
+
+void EditorMainWindow::onModelImported() {
+    qInfo("Model import successful, refreshing scene tree.");
+    if (SceneTree) {
+        SceneTree->refreshSceneTree();
+    }
+}
+
+void EditorMainWindow::onImportFailed(const QString &error) {
+    qCritical("Model import failed: {}", error);
+}
+
+void EditorMainWindow::updateTransformFromEditor(EntityID entityId, const TransformUpdateData &data) {
+    if (!mWorld) {
+        qWarning("EditorMainWindow::updateTransformFromEditor - World is null.");
+        return;
+    }
+
+    if (entityId == INVALID_ENTITY) {
+        qWarning("EditorMainWindow::updateTransformFromEditor - Received invalid entity ID.");
+        return;
+    }
+
+    TransformComponent *transform = mWorld->getComponent<TransformComponent>(entityId);
+
+    if (transform) {
+        qInfo() << "EditorMainWindow: Updating transform for Entity" << entityId
+                << " Pos:" << data.position << " Rot (Euler):" << data.rotation.toEulerAngles() << " Scale:" << data.
+                scale;
+
+        transform->setPosition(data.position);
+        transform->setRotation(data.rotation);
+        transform->setScale(data.scale);
+    } else {
+        qWarning() << "EditorMainWindow::updateTransformFromEditor - Could not find TransformComponent for entity ID:"
+                << entityId;
+    }
+}
+
+void EditorMainWindow::onSceneInitialized() {
+    qInfo("Editor: Received sceneInitialized signal. Refreshing scene tree.");
+    if (SceneTree) {
+        SceneTree->refreshSceneTree();
+    } else {
+        qWarning("Editor: Cannot refresh scene tree, SceneTree widget is null.");
+    }
+}
+
+void EditorMainWindow::setupModelImporter() {
+    if (!mWorld || !mResourceManager) {
+        qWarning("Cannot setup ModelImporter: World or ResourceManager is null.");
+        return;
+    }
+    mModelImporter = QSharedPointer<ModelImporter>::create(mWorld, mResourceManager, this); // Parent to main window
+    connect(mModelImporter.get(), &ModelImporter::modelImportedSuccessfully, this, &EditorMainWindow::onModelImported);
+    connect(mModelImporter.get(), &ModelImporter::importFailed, this, &EditorMainWindow::onImportFailed);
 }
 
 void EditorMainWindow::InitEdgeLayout() {
@@ -77,18 +184,6 @@ void EditorMainWindow::InitEdgeLayout() {
 
     connect(SceneTree, &SceneTreeWidget::objectSelected,
             ObjectTransformEditor, &TransformEditor::setCurrentObject);
-
-    // connect(ObjectTransformEditor, &TransformEditor::transformChanged,
-            // [](int id, QVector3D loc) { SceneManager::get().setObjectLocation(id, loc); });
-
-    // connect(&SceneManager::get(), &SceneManager::objectLocationUpdated,
-    //         [this](int id, QVector3D loc) {
-    //             if (ObjectTransformEditor->currentObjectId() == id) {
-    //                 ObjectTransformEditor->updateFromSceneManager();
-    //             }
-    //         });
-
-    SceneTree->refreshSceneTree();
 
     // 将两个dock添加到分割器中
     rightSplitter->addWidget(SceneTreeDock);

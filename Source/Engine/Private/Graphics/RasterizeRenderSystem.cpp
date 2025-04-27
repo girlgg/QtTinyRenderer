@@ -378,14 +378,14 @@ void RasterizeRenderSystem::submitResourceUpdates(QRhiResourceUpdateBatch *batch
     // 构建 Cube Mesh
     RhiMeshGpuData *cubeMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID);
     if (cubeMeshGpu && !cubeMeshGpu->ready) {
-        mResourceManager->queueMeshUpdate(BUILTIN_CUBE_MESH_ID, batch, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
+        // mResourceManager->queueMeshUpdate(BUILTIN_CUBE_MESH_ID, batch, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
     } else if (!cubeMeshGpu) {
         qWarning() << "Cube mesh GPU data is null during update.";
     }
     RhiMeshGpuData *pyramidMeshGpu = mResourceManager->getMeshGpuData(BUILTIN_PYRAMID_MESH_ID);
     if (pyramidMeshGpu && !pyramidMeshGpu->ready) {
-        mResourceManager->queueMeshUpdate(BUILTIN_PYRAMID_MESH_ID, batch, DEFAULT_PYRAMID_VERTICES,
-                                          DEFAULT_PYRAMID_INDICES);
+        // mResourceManager->queueMeshUpdate(BUILTIN_PYRAMID_MESH_ID, batch, DEFAULT_PYRAMID_VERTICES,
+                                          // DEFAULT_PYRAMID_INDICES);
     } else if (!pyramidMeshGpu) {
         qWarning() << "Pyramid mesh GPU data is null during update.";
     }
