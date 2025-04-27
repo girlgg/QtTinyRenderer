@@ -32,7 +32,7 @@ set_target_properties(Editor PROPERTIES
 # 添加Qt资源文件
 set(EDITOR_RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/Resources/img.qrc
-        # resources.qrc
+        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/style.qrc
         # 添加其他资源文件...
 )
 

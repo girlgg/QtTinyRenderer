@@ -165,7 +165,7 @@ void RenderGraph::execute(QRhiSwapChain *swapChain) {
     mCurrentSwapChain = swapChain;
     qInfo() << "RenderGraph::execute - Executing" << mExecutionOrder.size() << "passes...";
     // TODO: pass之间插入屏障
-    for (RGPass *pass: qAsConst(mExecutionOrder)) {
+    for (RGPass *pass: std::as_const(mExecutionOrder)) {
         if (pass) {
             pass->execute(mCommandBuffer);
         } else {

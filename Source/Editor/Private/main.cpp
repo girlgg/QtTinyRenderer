@@ -2,6 +2,8 @@
 #include <QDirIterator>
 #include "UI/EditorMainWindow.h"
 #include <QMutex>
+#include <QStyleFactory>
+#include "UI/EdgesWidgets/SceneTreeWidget.h"
 
 enum LogLevel {
     LogDebug,
@@ -73,6 +75,15 @@ int main(int argc, char *argv[]) {
     qInstallMessageHandler(customDebug);
 
     QApplication app(argc, argv);
+    app.setStyle(QStyleFactory::create("Fusion"));
+    QFile styleSheetFile(":/Style/BaseStyle.qss");
+    if (styleSheetFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QString styleSheet = QLatin1String(styleSheetFile.readAll());
+        app.setStyleSheet(styleSheet);
+        styleSheetFile.close();
+    } else {
+        qWarning("Could not find or open stylesheet file.");
+    }
 
     EditorMainWindow Window;
     Window.show();

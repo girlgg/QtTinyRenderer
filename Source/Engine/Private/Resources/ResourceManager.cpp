@@ -38,7 +38,6 @@ void ResourceManager::createDefaultTextures() {
             mTextureCache.insert(id, std::move(texGpuData));
         }
     };
-
     createTexture(DEFAULT_WHITE_TEXTURE_ID, QImage(WHITE_PIXEL, 1, 1, QImage::Format_RGBA8888));
     createTexture(DEFAULT_BLACK_TEXTURE_ID, QImage(BLACK_PIXEL, 1, 1, QImage::Format_RGBA8888));
     createTexture(DEFAULT_NORMAL_MAP_ID, QImage(NORMAL_PIXEL, 1, 1, QImage::Format_RGBA8888));
@@ -131,11 +130,16 @@ bool ResourceManager::queueMeshUpdate(const QString &id, QRhiResourceUpdateBatch
 }
 
 void ResourceManager::loadTexture(const QString &textureId) {
-    if (mTextureCache.contains(textureId) || !mRhi) return;
+    if (textureId.isEmpty() || mTextureCache.contains(textureId)) return;
+    if (!mRhi) {
+        qWarning() << "ResourceManager::loadTexture - RHI not initialized.";
+        return;
+    }
 
+    qInfo() << "ResourceManager: Loading texture description for:" << textureId;
     QImage image(textureId);
     if (image.isNull()) {
-        qWarning() << "Failed to load texture:" << textureId;
+        qWarning() << "Failed to load image file:" << textureId << ". Using default white texture instead.";
         return;
     }
     image = image.convertToFormat(QImage::Format_RGBA8888);
@@ -146,16 +150,20 @@ void ResourceManager::loadTexture(const QString &textureId) {
         qWarning() << "Failed to create texture for" << textureId;
         return;
     }
+    texGpuData.texture->setName(textureId.toUtf8());
     texGpuData.sourceImage = image;
     texGpuData.ready = false;
     mTextureCache.insert(textureId, std::move(texGpuData));
 }
 
 void ResourceManager::loadMaterial(const QString &materialId, const MaterialComponent *definition) {
-    if (mMaterialCache.contains(materialId) || !mRhi || !definition) return;
-
+    if (mMaterialCache.contains(materialId)) return; // Already defined
+    if (!mRhi || !definition) {
+        qWarning() << "ResourceManager::loadMaterial - Invalid RHI or definition for" << materialId;
+        return;
+    }
+    qInfo() << "Defining material cache entry:" << materialId;
     RhiMaterialGpuData gpuData;
-
     gpuData.albedoId = definition->albedoMapResourceId.isEmpty()
                            ? DEFAULT_WHITE_TEXTURE_ID
                            : definition->albedoMapResourceId;
@@ -234,74 +242,64 @@ RhiMaterialGpuData *ResourceManager::getMaterialGpuData(const QString &materialI
 }
 
 bool ResourceManager::queueMaterialUpdate(const QString &materialId, QRhiResourceUpdateBatch *batch) {
-    if (!mRhi || !batch) return false;
+    if (!mRhi || !batch) {
+        qWarning() << "ResourceManager::queueMaterialUpdate - RHI or batch is null for" << materialId;
+        return false;
+    }
 
     RhiMaterialGpuData *gpuData = getMaterialGpuData(materialId);
 
     if (!gpuData) {
+        qWarning() << "ResourceManager::queueMaterialUpdate - Material" << materialId << "not found in cache.";
         return false;
     }
-    if (gpuData->ready)
+
+    if (gpuData->ready) {
         return true;
+    }
 
     qInfo() << "Queueing PBR material texture uploads for:" << materialId;
 
-    bool success = true;
+    bool allTexturesReadyOrQueued = true;
 
-    auto loadTextureById = [&](const QString &textureId) {
-        if (textureId.isEmpty()) return;
+    auto queueTexture = [&](const QString &textureId, const QString &mapType) {
+        if (textureId.isEmpty()) {
+            qWarning() << "Material" << materialId << mapType << "texture ID is empty.";
+            return;
+        }
         RhiTextureGpuData *texGpu = getTextureGpuData(textureId);
         if (!texGpu) {
             qWarning() << "Material" << materialId << ": Referenced texture" << textureId <<
                     "not found in cache during update.";
-            success = false;
+            allTexturesReadyOrQueued = false;
             return;
         }
-        if (!texGpu->ready && texGpu->texture && !texGpu->sourceImage.isNull()) {
-            qInfo() << "  Uploading texture:" << textureId;
-            batch->uploadTexture(texGpu->texture.get(), texGpu->sourceImage);
-            texGpu->sourceImage = QImage();
-            texGpu->ready = true;
-        } else if (!texGpu->ready && texGpu->texture && texGpu->sourceImage.isNull()) {
-            qWarning() << "  Texture:" << textureId << "marked not ready but has no source image for upload.";
-            if (textureId == DEFAULT_WHITE_TEXTURE_ID || textureId == DEFAULT_BLACK_TEXTURE_ID ||
-                textureId == DEFAULT_NORMAL_MAP_ID || textureId == DEFAULT_METALROUGH_TEXTURE_ID) {
-                createDefaultTextures();
-                texGpu = getTextureGpuData(textureId);
-                if (texGpu && !texGpu->ready && texGpu->texture && !texGpu->sourceImage.isNull()) {
-                    qInfo() << "  Re-uploading default texture:" << textureId;
-                    batch->uploadTexture(texGpu->texture.get(), texGpu->sourceImage);
-                    texGpu->sourceImage = QImage();
-                    texGpu->ready = true;
-                }
+        if (!texGpu->ready) {
+            if (queueTextureUpdate(textureId, batch)) {
+                qInfo() << "  Queued update for" << mapType << "texture:" << textureId;
             } else {
-                success = false;
+                qWarning() << "  Failed to queue update for" << mapType << "texture:" << textureId;
+                if (mapType == "Albedo" || mapType == "Normal" || mapType == "MetallicRoughness") {
+                    allTexturesReadyOrQueued = false;
+                }
             }
-        } else if (!texGpu->texture) {
-            qWarning() << "  Texture:" << textureId << "has no RHI texture object.";
-            success = false;
         }
     };
 
-    loadTextureById(gpuData->albedoId);
-    loadTextureById(gpuData->normalId);
-    loadTextureById(gpuData->metallicRoughnessId);
-    loadTextureById(gpuData->aoId);
-    loadTextureById(gpuData->emissiveId);
+    queueTexture(gpuData->albedoId, "Albedo");
+    queueTexture(gpuData->normalId, "Normal");
+    queueTexture(gpuData->metallicRoughnessId, "MetallicRoughness");
+    queueTexture(gpuData->aoId, "AO");
+    queueTexture(gpuData->emissiveId, "Emissive");
 
-    RhiTextureGpuData *albedoTex = getTextureGpuData(gpuData->albedoId);
-    if (albedoTex && albedoTex->ready) {
+    RhiTextureGpuData *albedoTexGpu = getTextureGpuData(gpuData->albedoId);
+    if (allTexturesReadyOrQueued && albedoTexGpu && albedoTexGpu->ready) {
+        qInfo() << "Material" << materialId << "marked as ready.";
         gpuData->ready = true;
-        qInfo() << "Material" << materialId << "marked as ready (Albedo texture is ready).";
-        if (!success) {
-            qWarning() << "Material" << materialId <<
-                    "marked ready, but some optional textures might be missing or failed to upload.";
-        }
     } else {
-        qWarning() << "Material" << materialId << "NOT marked ready - Albedo texture '" << gpuData->albedoId <<
-                "' is not ready.";
+        qWarning() << "Material" << materialId << "could not be marked ready. All textures ready/queued:" <<
+                allTexturesReadyOrQueued;
         gpuData->ready = false;
-        success = false;
     }
 
     return gpuData->ready;

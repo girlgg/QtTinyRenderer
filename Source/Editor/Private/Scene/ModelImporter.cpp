@@ -143,7 +143,7 @@ EntityID ModelImporter::processMesh(aiMesh *mesh, const aiScene *scene, const QS
     // --- 处理顶点 ---
     bool hasNormals = mesh->HasNormals();
     bool hasTexCoords = mesh->HasTextureCoords(0);
-
+    bool hasTangentsAndBitangents = mesh->HasTangentsAndBitangents();
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
         VertexData vertex;
         vertex.position = QVector3D(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
@@ -158,6 +158,9 @@ EntityID ModelImporter::processMesh(aiMesh *mesh, const aiScene *scene, const QS
             vertex.texCoord = QVector2D(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
         } else {
             vertex.texCoord = QVector2D(0.0f, 0.0f); // Default UV
+        }
+        if (hasTangentsAndBitangents) {
+            vertex.tangent = QVector3D(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
         }
         vertices.append(vertex);
     }
@@ -195,76 +198,112 @@ EntityID ModelImporter::processMesh(aiMesh *mesh, const aiScene *scene, const QS
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
         aiString texPath;
+        QString fullPath;
 
-        // Diffuse/Albedo Texture
-        if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
-            if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
-                QString fullPath = QDir(modelDir).filePath(QString::fromUtf8(texPath.C_Str()));
-                if (QFile::exists(fullPath)) {
-                    qDebug() << "Found Diffuse Texture:" << fullPath;
-                    matComp.albedoMapResourceId = fullPath;
-                } else {
-                    qWarning() << "Diffuse texture file not found:" << fullPath << "(Original path:" << texPath.C_Str()
-                            << ")";
-                    QString altPath = QString::fromUtf8(texPath.C_Str());
-                    if (QFile::exists(altPath)) {
-                        matComp.albedoMapResourceId = altPath;
-                        qDebug() << "  Found texture at alternate path:" << altPath;
-                    } else {
-                        matComp.albedoMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
-                    }
-                }
-            }
-        } else {
-            matComp.albedoMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
-        }
-
-        // Normal Texture
-        aiTextureType normalTypes[] = {aiTextureType_NORMALS, aiTextureType_HEIGHT, aiTextureType_NORMAL_CAMERA};
-        bool normalFound = false;
-        for (aiTextureType type: normalTypes) {
+        auto findTexture = [&](aiTextureType type, const char *logName) -> QString {
             if (material->GetTextureCount(type) > 0) {
                 if (material->GetTexture(type, 0, &texPath) == AI_SUCCESS) {
-                    QString fullPath = QDir(modelDir).filePath(QString::fromUtf8(texPath.C_Str()));
+                    QString pathStr = QString::fromUtf8(texPath.C_Str());
+                    fullPath = QDir(modelDir).filePath(pathStr);
                     if (QFile::exists(fullPath)) {
-                        qDebug() << "Found Normal Texture:" << fullPath << "(Type:" << type << ")";
-                        matComp.normalMapResourceId = fullPath;
-                        normalFound = true;
-                        break;
+                        qDebug() << "Found" << logName << "Texture:" << fullPath << "(Type:" << type << ")";
+                        return fullPath;
                     }
-                    qWarning() << "Normal texture file not found:" << fullPath;
-                    QString altPath = QString::fromUtf8(texPath.C_Str());
+                    qWarning() << logName << "texture file not found at primary path:" << fullPath;
+                    QString altPath = pathStr;
                     if (QFile::exists(altPath)) {
-                        matComp.normalMapResourceId = altPath;
-                        normalFound = true;
-                        qDebug() << "  Found normal texture at alternate path:" << altPath;
-                        break;
+                        qDebug() << "  Found" << logName << "texture at alternate path:" << altPath;
+                        return altPath;
                     }
+                    qWarning() << "  " << logName << "texture also not found at alternate path:" << altPath;
+                } else {
+                    qWarning() << "Assimp GetTexture failed for type" << type;
                 }
             }
+            return QString();
+        };
+        // Albedo / Diffuse
+        matComp.albedoMapResourceId = findTexture(aiTextureType_DIFFUSE, "Diffuse");
+        if (matComp.albedoMapResourceId.isEmpty()) {
+            matComp.albedoMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
+            aiColor4D diffuseColor;
+            if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuseColor) == AI_SUCCESS) {
+                matComp.albedoFactor = QVector3D(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+            }
         }
-        if (!normalFound) {
+        // Normal (Try multiple types)
+        matComp.normalMapResourceId = findTexture(aiTextureType_NORMALS, "Normal");
+        if (matComp.normalMapResourceId.isEmpty()) {
+            matComp.normalMapResourceId = findTexture(aiTextureType_HEIGHT, "Height (as Normal)");
+        }
+        if (matComp.normalMapResourceId.isEmpty()) {
+            matComp.normalMapResourceId = findTexture(aiTextureType_NORMAL_CAMERA, "NormalCamera");
+        }
+        if (matComp.normalMapResourceId.isEmpty()) {
             matComp.normalMapResourceId = DEFAULT_NORMAL_MAP_ID;
         }
+        // --- PBR Metallic/Roughness Texture Search ---
+        matComp.metallicRoughnessMapResourceId = findTexture(aiTextureType_METALNESS,
+                                                             "Metallic/Roughness (GLTF PBR)");
+        if (matComp.metallicRoughnessMapResourceId.isEmpty()) {
+            matComp.metallicRoughnessMapResourceId = findTexture(aiTextureType_DIFFUSE_ROUGHNESS,
+                                                                 "Metallic/Roughness (GLTF PBR)");
+            if (!matComp.metallicRoughnessMapResourceId.isEmpty()) {
+                qDebug() << "  Found Roughness map, potentially combined Metal/Rough - using this ID.";
+            }
+        } else {
+            qDebug() << "  Found Metalness map, potentially combined Metal/Rough - using this ID.";
+        }
+        // Fallback: Check traditional Specular/Shininess if PBR maps aren't found (Less ideal)
+        if (matComp.metallicRoughnessMapResourceId.isEmpty()) {
+            matComp.metallicRoughnessMapResourceId = findTexture(aiTextureType_SPECULAR, "Specular (Fallback)");
+        }
+        if (matComp.metallicRoughnessMapResourceId.isEmpty()) {
+            matComp.metallicRoughnessMapResourceId = DEFAULT_METALROUGH_TEXTURE_ID;
+        }
+        // Also try reading factors
+        float metallicFactor = 0.0f;
+        float roughnessFactor = 1.0f;
+        aiGetMaterialFloat(material, AI_MATKEY_METALLIC_FACTOR, &metallicFactor);
+        aiGetMaterialFloat(material, AI_MATKEY_ROUGHNESS_FACTOR, &roughnessFactor);
+        matComp.metallicFactor = metallicFactor;
+        matComp.roughnessFactor = roughnessFactor;
+
+
+        // Ambient Occlusion
+        matComp.ambientOcclusionMapResourceId = findTexture(aiTextureType_AMBIENT_OCCLUSION, "AO");
+        if (matComp.ambientOcclusionMapResourceId.isEmpty()) {
+            // Sometimes AO is packed in LIGHTMAP
+            matComp.ambientOcclusionMapResourceId = findTexture(aiTextureType_LIGHTMAP, "Lightmap (as AO)");
+        }
+        if (matComp.ambientOcclusionMapResourceId.isEmpty()) {
+            matComp.ambientOcclusionMapResourceId = DEFAULT_WHITE_TEXTURE_ID; // Default white (no occlusion)
+        }
+
+        // Emissive
+        matComp.emissiveMapResourceId = findTexture(aiTextureType_EMISSIVE, "Emissive");
+        if (matComp.emissiveMapResourceId.isEmpty()) {
+            matComp.emissiveMapResourceId = DEFAULT_BLACK_TEXTURE_ID;
+        }
+        aiColor4D emissiveColor;
+        if (aiGetMaterialColor(material, AI_MATKEY_COLOR_EMISSIVE, &emissiveColor) == AI_SUCCESS) {
+            matComp.emissiveFactor = QVector3D(emissiveColor.r, emissiveColor.g, emissiveColor.b);
+        }
+    } else {
+        matComp.albedoMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
+        matComp.normalMapResourceId = DEFAULT_NORMAL_MAP_ID;
         matComp.metallicRoughnessMapResourceId = DEFAULT_METALROUGH_TEXTURE_ID;
         matComp.ambientOcclusionMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
         matComp.emissiveMapResourceId = DEFAULT_BLACK_TEXTURE_ID;
-
-        aiColor4D diffuseColor;
-        if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuseColor) == AI_SUCCESS) {
-            matComp.albedoFactor = QVector3D(diffuseColor.r, diffuseColor.g, diffuseColor.b);
-        }
     }
     QString materialCacheKey = mResourceManager->generateMaterialCacheKey(&matComp);
     if (!mResourceManager->getMaterialGpuData(materialCacheKey)) {
         mResourceManager->loadMaterial(materialCacheKey, &matComp);
+    } else {
+        qDebug() << "ProcessMesh: Material already cached:" << materialCacheKey;
     }
     mWorld->addComponent<MaterialComponent>(entity, matComp);
-
-    // --- Transform Component ---
     mWorld->addComponent<TransformComponent>(entity, {});
-
-    // --- Renderable Component ---
     mWorld->addComponent<RenderableComponent>(entity, {{}, true});
 
     return entity;

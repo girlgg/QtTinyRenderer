@@ -36,29 +36,31 @@ TransformEditor::~TransformEditor() {
 }
 
 void TransformEditor::setCurrentObject(EntityID objId) {
-    if (mCurrentObjId == objId) return;
-
     qDebug() << "TransformEditor::setCurrentObject - ID:" << objId;
     mCurrentObjId = objId;
 
-    if (mCurrentObjId == INVALID_ENTITY || !mWorld) {
+    if (!mWorld) {
+        qWarning() << "TransformEditor::setCurrentObject - World is null!";
         setEnabled(false);
         updateFromSceneManager();
+        return;
+    }
+
+
+    if (mCurrentObjId == INVALID_ENTITY) {
+        qDebug() << "TransformEditor: Received INVALID_ENTITY. Disabling and clearing UI.";
+        setEnabled(false);
     } else {
-        TransformComponent* transform = mWorld->getComponent<TransformComponent>(mCurrentObjId);
-        if (transform) {
+        bool hasTransform = mWorld->hasComponent<TransformComponent>(mCurrentObjId);
+        if (hasTransform) {
+            qDebug() << "TransformEditor: Entity" << objId << "has Transform. Enabling editor.";
             setEnabled(true);
-            updateFromSceneManager();
         } else {
-            qWarning() << "Selected entity" << objId << "has no TransformComponent.";
+            qDebug() << "TransformEditor: Entity" << objId << "missing Transform. Disabling editor.";
             setEnabled(false);
-            mCurrentObjId = INVALID_ENTITY;
-            updateFromSceneManager();
         }
     }
 
-    if (mCurrentObjId == objId) return;
-    mCurrentObjId = objId;
     updateFromSceneManager();
 }
 
@@ -70,8 +72,8 @@ void TransformEditor::updateFromSceneManager() {
     // 防止递归调用
     if (mUpdatingUI) return;
     mUpdatingUI = true;
-
     blockUIUpdates(true);
+
     if (mCurrentObjId == INVALID_ENTITY || !mWorld) {
         ui->lineEditTranslationX->clear();
         ui->lineEditTranslationY->clear();

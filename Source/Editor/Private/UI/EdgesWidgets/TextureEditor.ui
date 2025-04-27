@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+    <author/>
+    <comment/>
+    <exportmacro/>
+    <class>TextureEditor</class>
+    <widget class="QWidget" name="TextureEditor">
+        <property name="geometry">
+            <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>380</width>
+                <height>400</height>
+            </rect>
+        </property>
+        <property name="windowTitle">
+            <string>TextureEditor</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_2">
+            <property name="leftMargin">
+                <number>0</number>
+            </property>
+            <property name="topMargin">
+                <number>0</number>
+            </property>
+            <property name="rightMargin">
+                <number>0</number>
+            </property>
+            <property name="bottomMargin">
+                <number>0</number>
+            </property>
+            <item>
+                <widget class="QScrollArea" name="scrollArea">
+                    <property name="frameShape">
+                        <enum>QFrame::NoFrame</enum>
+                    </property>
+                    <property name="widgetResizable">
+                        <bool>true</bool>
+                    </property>
+                    <widget class="QWidget" name="scrollAreaWidgetContents">
+                        <property name="geometry">
+                            <rect>
+                                <x>0</x>
+                                <y>0</y>
+                                <width>380</width>
+                                <height>300</height>
+                            </rect>
+                        </property>
+                        <layout class="QFormLayout" name="formLayout">
+                            <property name="horizontalSpacing">
+                                <number>10</number>
+                            </property>
+                            <property name="verticalSpacing">
+                                <number>10</number>
+                            </property>
+                            <property name="leftMargin">
+                                <number>9</number>
+                            </property>
+                            <property name="topMargin">
+                                <number>9</number>
+                            </property>
+                            <property name="rightMargin">
+                                <number>9</number>
+                            </property>
+                            <property name="bottomMargin">
+                                <number>9</number>
+                            </property>
+                            <item row="0" column="0">
+                                <widget class="QLabel" name="labelAlbedo">
+                                    <property name="text">
+                                        <string>Albedo:</string>
+                                    </property>
+                                    <property name="buddy">
+                                        <cstring>lineEditAlbedoPath</cstring>
+                                    </property>
+                                </widget>
+                            </item>
+                            <item row="0" column="1">
+                                <layout class="QHBoxLayout" name="horizontalLayoutAlbedo">
+                                    <property name="spacing">
+                                        <number>6</number>
+                                    </property>
+                                    <item>
+                                        <widget class="QLineEdit" name="lineEditAlbedoPath">
+                                            <property name="readOnly">
+                                                <bool>true</bool>
+                                            </property>
+                                            <property name="placeholderText">
+                                                <string>[Default White]</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                    <item>
+                                        <widget class="QPushButton" name="buttonBrowseAlbedo">
+                                            <property name="sizePolicy">
+                                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                                                    <horstretch>0</horstretch>
+                                                    <verstretch>0</verstretch>
+                                                </sizepolicy>
+                                            </property>
+                                            <property name="text">
+                                                <string>Browse...</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                </layout>
+                            </item>
+
+                            <item row="1" column="0">
+                                <widget class="QLabel" name="labelNormal">
+                                    <property name="text">
+                                        <string>Normal:</string>
+                                    </property>
+                                    <property name="buddy">
+                                        <cstring>lineEditNormalPath</cstring>
+                                    </property>
+                                </widget>
+                            </item>
+                            <item row="1" column="1">
+                                <layout class="QHBoxLayout" name="horizontalLayoutNormal">
+                                    <property name="spacing">
+                                        <number>6</number>
+                                    </property>
+                                    <item>
+                                        <widget class="QLineEdit" name="lineEditNormalPath">
+                                            <property name="readOnly">
+                                                <bool>true</bool>
+                                            </property>
+                                            <property name="placeholderText">
+                                                <string>[Default Normal]</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                    <item>
+                                        <widget class="QPushButton" name="buttonBrowseNormal">
+                                            <property name="sizePolicy">
+                                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                                                    <horstretch>0</horstretch>
+                                                    <verstretch>0</verstretch>
+                                                </sizepolicy>
+                                            </property>
+                                            <property name="text">
+                                                <string>Browse...</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                </layout>
+                            </item>
+
+                            <item row="2" column="0">
+                                <widget class="QLabel" name="labelMetallicRoughness">
+                                    <property name="text">
+                                        <string>Metallic/Rough:</string>
+                                    </property>
+                                    <property name="buddy">
+                                        <cstring>lineEditMetallicRoughnessPath</cstring>
+                                    </property>
+                                </widget>
+                            </item>
+                            <item row="2" column="1">
+                                <layout class="QHBoxLayout" name="horizontalLayoutMetallicRoughness">
+                                    <property name="spacing">
+                                        <number>6</number>
+                                    </property>
+                                    <item>
+                                        <widget class="QLineEdit" name="lineEditMetallicRoughnessPath">
+                                            <property name="readOnly">
+                                                <bool>true</bool>
+                                            </property>
+                                            <property name="placeholderText">
+                                                <string>[Default Metal/Rough]</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                    <item>
+                                        <widget class="QPushButton" name="buttonBrowseMetallicRoughness">
+                                            <property name="sizePolicy">
+                                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                                                    <horstretch>0</horstretch>
+                                                    <verstretch>0</verstretch>
+                                                </sizepolicy>
+                                            </property>
+                                            <property name="text">
+                                                <string>Browse...</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                </layout>
+                            </item>
+
+                            <item row="3" column="0">
+                                <widget class="QLabel" name="labelAO">
+                                    <property name="text">
+                                        <string>AO:</string>
+                                    </property>
+                                    <property name="buddy">
+                                        <cstring>lineEditAOPath</cstring>
+                                    </property>
+                                </widget>
+                            </item>
+                            <item row="3" column="1">
+                                <layout class="QHBoxLayout" name="horizontalLayoutAO">
+                                    <property name="spacing">
+                                        <number>6</number>
+                                    </property>
+                                    <item>
+                                        <widget class="QLineEdit" name="lineEditAOPath">
+                                            <property name="readOnly">
+                                                <bool>true</bool>
+                                            </property>
+                                            <property name="placeholderText">
+                                                <string>[Default White]</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                    <item>
+                                        <widget class="QPushButton" name="buttonBrowseAO">
+                                            <property name="sizePolicy">
+                                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                                                    <horstretch>0</horstretch>
+                                                    <verstretch>0</verstretch>
+                                                </sizepolicy>
+                                            </property>
+                                            <property name="text">
+                                                <string>Browse...</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                </layout>
+                            </item>
+
+                            <item row="4" column="0">
+                                <widget class="QLabel" name="labelEmissive">
+                                    <property name="text">
+                                        <string>Emissive:</string>
+                                    </property>
+                                    <property name="buddy">
+                                        <cstring>lineEditEmissivePath</cstring>
+                                    </property>
+                                </widget>
+                            </item>
+                            <item row="4" column="1">
+                                <layout class="QHBoxLayout" name="horizontalLayoutEmissive">
+                                    <property name="spacing">
+                                        <number>6</number>
+                                    </property>
+                                    <item>
+                                        <widget class="QLineEdit" name="lineEditEmissivePath">
+                                            <property name="readOnly">
+                                                <bool>true</bool>
+                                            </property>
+                                            <property name="placeholderText">
+                                                <string>[Default Black]</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                    <item>
+                                        <widget class="QPushButton" name="buttonBrowseEmissive">
+                                            <property name="sizePolicy">
+                                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                                                    <horstretch>0</horstretch>
+                                                    <verstretch>0</verstretch>
+                                                </sizepolicy>
+                                            </property>
+                                            <property name="text">
+                                                <string>Browse...</string>
+                                            </property>
+                                        </widget>
+                                    </item>
+                                </layout>
+                            </item>
+
+                            <item row="5" column="1">
+                                <spacer name="verticalSpacer">
+                                    <property name="orientation">
+                                        <enum>Qt::Vertical</enum>
+                                    </property>
+                                    <property name="sizeHint" stdset="0">
+                                        <size>
+                                            <width>20</width>
+                                            <height>40</height>
+                                        </size>
+                                    </property>
+                                    <property name="sizeType">
+                                        <enum>QSizePolicy::Expanding</enum>
+                                    </property>
+                                </spacer>
+                            </item>
+                        </layout>
+                    </widget>
+                </widget>
+            </item>
+        </layout>
+    </widget>
+    <pixmapfunction/>
+    <connections/>
+</ui>

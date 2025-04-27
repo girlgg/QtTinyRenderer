@@ -11,7 +11,6 @@
 #include "Component/MeshComponent.h"
 #include "Component/TransformComponent.h"
 #include "Component/RenderableComponent.h"
-#include "Graphics/RasterizeRenderSystem.h"
 #include "RenderGraph/BasePass.h"
 #include "RenderGraph/PresentPass.h"
 #include "RenderGraph/RenderGraph.h"
@@ -84,87 +83,8 @@ void ViewWindow::initializeScene() {
     mWorld->addComponent<CameraControllerComponent>(cameraEntity, {});
     mCameraEntity = cameraEntity;
 
-    mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID,
-                                       DEFAULT_CUBE_VERTICES,
-                                       DEFAULT_CUBE_INDICES);
-    mResourceManager->loadMeshFromData(BUILTIN_PYRAMID_MESH_ID,
-                                       DEFAULT_PYRAMID_VERTICES,
-                                       DEFAULT_PYRAMID_INDICES);
-
-    const int numObjects = 2;
-    for (int i = 0; i < numObjects; ++i) {
-        EntityID entity = mWorld->createEntity();
-        mWorld->addComponent<TransformComponent>(entity, {});
-        mWorld->addComponent<MeshComponent>(entity, {});
-        mWorld->addComponent<MaterialComponent>(entity, {});
-        mWorld->addComponent<RenderableComponent>(entity, {});
-
-        TransformComponent *transform = mWorld->getComponent<TransformComponent>(entity);
-        transform->setPosition(QVector3D(QRandomGenerator::global()->generateDouble() * 10.0 - 5.0,
-                                         QRandomGenerator::global()->generateDouble() * 10.0 - 5.0,
-                                         QRandomGenerator::global()->generateDouble() * -5.0 - 5.0));
-        transform->setRotation(QQuaternion::fromEulerAngles(
-            QRandomGenerator::global()->generateDouble() * 360.0,
-            QRandomGenerator::global()->generateDouble() * 360.0,
-            QRandomGenerator::global()->generateDouble() * 360.0
-        ));
-        transform->setScale(QVector3D(0.5f, 0.5f, 0.5f) + QVector3D(QRandomGenerator::global()->generateDouble() * 0.5,
-                                                                    QRandomGenerator::global()->generateDouble() * 0.5,
-                                                                    QRandomGenerator::global()->generateDouble() *
-                                                                    0.5));
-
-        MeshComponent *mesh = mWorld->getComponent<MeshComponent>(entity);
-        if (QRandomGenerator::global()->bounded(2) == 0) {
-            mesh->meshResourceId = BUILTIN_CUBE_MESH_ID;
-        } else {
-            mesh->meshResourceId = BUILTIN_PYRAMID_MESH_ID;
-        }
-        // 注意：这里我们只设置了 meshResourceId。实际的顶点/索引数据由 ResourceManager 加载。
-        // 如果需要加载自定义的 Mesh，需要先调用 ResourceManager::loadMeshFromData
-
-        // 设置材质 (可以保持不变或添加更多随机性)
-        MaterialComponent *mat = mWorld->getComponent<MaterialComponent>(entity);
-        mat->albedoMapResourceId = ":/img/Images/container2.png";
-    }
-
-    // 创建灯光实体
-    // 1. 创建一个方向光
-    EntityID dirLightEntity = mWorld->createEntity();
-    mWorld->addComponent<TransformComponent>(dirLightEntity, {});
-    // 设置方向光的方向 (通过旋转 Transform 实现)
-    TransformComponent *dirLightTransform = mWorld->getComponent<TransformComponent>(dirLightEntity);
-    dirLightTransform->setRotation(QQuaternion::fromEulerAngles(45.0f, -45.0f, 0.0f)); // 指向某个方向
-    mWorld->addComponent<LightComponent>(dirLightEntity, {
-                                             {},
-                                             LightType::Directional, {1.0f, 1.0f, 1.0f}, 0.6f,
-                                             {}, 1, 0, 0, {},
-                                             {0.1f, 0.1f, 0.1f}, {0.6f, 0.6f, 0.6f}, {0.5f, 0.5f, 0.5f}
-                                         });
-
-    // 2. 创建几个点光源
-    int numPointLightsToCreate = qMin(MAX_POINT_LIGHTS, 3);
-    for (int i = 0; i < numPointLightsToCreate; ++i) {
-        EntityID pointLightEntity = mWorld->createEntity();
-        mWorld->addComponent<TransformComponent>(pointLightEntity, {});
-        TransformComponent *pointLightTransform = mWorld->getComponent<TransformComponent>(pointLightEntity);
-        pointLightTransform->setPosition(QVector3D(QRandomGenerator::global()->generateDouble() * 15.0 - 7.5,
-                                                   QRandomGenerator::global()->generateDouble() * 5.0,
-                                                   QRandomGenerator::global()->generateDouble() * -15.0 - 2.5));
-        QVector3D randomColor(QRandomGenerator::global()->generateDouble(),
-                              QRandomGenerator::global()->generateDouble(),
-                              QRandomGenerator::global()->generateDouble());
-        randomColor.normalize();
-
-        mWorld->addComponent<LightComponent>(pointLightEntity, {
-                                                 {},
-                                                 LightType::Point, randomColor, 1.5f,
-                                                 {},
-                                                 1.0f, 0.07f, 0.017f,
-                                                 {},
-                                                 {}, {},
-                                                 {}
-                                             });
-    }
+    mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
+    mResourceManager->loadMeshFromData(BUILTIN_PYRAMID_MESH_ID, DEFAULT_PYRAMID_VERTICES, DEFAULT_PYRAMID_INDICES);
     emit sceneInitialized();
 }
 

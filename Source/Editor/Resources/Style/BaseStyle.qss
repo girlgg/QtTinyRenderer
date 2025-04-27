@@ -1,0 +1,256 @@
+/* General Flat Style */
+QWidget {
+    background-color: #3c3f41; /* Dark grey background */
+    color: #bbbbbb; /* Light grey text */
+    font-family: "Segoe UI", Arial, sans-serif; /* Or your preferred font */
+    font-size: 9pt;
+}
+
+QMainWindow::separator {
+    background-color: #555555; /* Separator color */
+    width: 1px;
+    height: 1px;
+}
+
+/* Dock Widgets */
+QDockWidget {
+    titlebar-close-icon: none; /* Hide close button if needed */
+    titlebar-normal-icon: none; /* Hide float button if needed */
+    border: 1px solid #2d2d2d; /* Subtle border */
+}
+
+QDockWidget::title {
+    text-align: left;
+    background-color: #323232; /* Slightly darker title bar */
+    padding: 5px;
+    border: none;
+    color: #cccccc; /* Brighter title text */
+    font-weight: bold;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #555555;
+    color: #dddddd;
+    border: 1px solid #666666;
+    padding: 5px 10px;
+    min-height: 15px;
+    border-radius: 3px; /* Slight rounding */
+}
+
+QPushButton:hover {
+    background-color: #6a6a6a;
+    border-color: #777777;
+}
+
+QPushButton:pressed {
+    background-color: #4a4a4a;
+}
+
+QPushButton:disabled {
+    background-color: #454545;
+    color: #888888;
+    border-color: #555555;
+}
+
+QToolButton {
+     background-color: transparent; /* Make toolbuttons blend in */
+     color: #dddddd;
+     border: none;
+     padding: 3px;
+     margin: 1px;
+     /* Add icon specifics if needed */
+}
+QToolButton:hover {
+    background-color: #555555;
+}
+QToolButton:pressed {
+     background-color: #4a4a4a;
+}
+QToolButton::menu-indicator {
+    image: none; /* Remove dropdown arrow if desired */
+}
+QToolButton[popupMode="1"] { /* InstantPopup */
+    padding-right: 2px; /* Remove extra space */
+}
+
+
+/* Line Edits */
+QLineEdit {
+    background-color: #2b2b2b;
+    border: 1px solid #555555;
+    padding: 4px;
+    color: #cccccc;
+    border-radius: 3px;
+}
+
+QLineEdit:read-only {
+    background-color: #353535; /* Slightly different for read-only */
+    color: #aaaaaa;
+}
+
+/* Tree Widget */
+QTreeWidget {
+    background-color: #2b2b2b;
+    border: 1px solid #444444;
+    alternate-background-color: #313131; /* Subtle row alternation */
+    color: #cccccc;
+}
+
+QTreeWidget::item {
+    padding: 4px;
+}
+
+QTreeWidget::item:selected {
+    background-color: #4a6a80; /* Selection color (e.g., a muted blue) */
+    color: #ffffff;
+}
+
+QTreeWidget::item:hover {
+    background-color: #3f3f3f;
+}
+
+QHeaderView::section {
+    background-color: #323232;
+    color: #cccccc;
+    padding: 4px;
+    border: 1px solid #555555;
+    font-weight: bold;
+}
+
+/* Scroll Bars */
+QScrollBar:vertical {
+    border: 1px solid #2d2d2d;
+    background: #3c3f41;
+    width: 12px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #555555;
+    min-height: 20px;
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #6a6a6a;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px; /* Hide arrows */
+    background: none;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    border: 1px solid #2d2d2d;
+    background: #3c3f41;
+    height: 12px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #555555;
+    min-width: 20px;
+     border-radius: 6px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #6a6a6a;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px; /* Hide arrows */
+    background: none;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* Menu */
+QMenu {
+    background-color: #3c3f41;
+    border: 1px solid #555555;
+    color: #dddddd;
+}
+
+QMenu::item {
+    padding: 5px 20px 5px 20px;
+}
+
+QMenu::item:selected {
+    background-color: #4a6a80; /* Selection color */
+    color: #ffffff;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #555555;
+    margin-left: 5px;
+    margin-right: 5px;
+}
+
+
+/* Specific Widgets by Object Name (Optional but useful) */
+/*
+#SceneTreeDock QWidget { background-color: #333; }
+#TransformDock QWidget { background-color: #383838; }
+#TextureDock QWidget { background-color: #3a3a3a; }
+*/
+
+/* Container widget inside the dock */
+EditorDockWidget > QWidget {
+     padding: 0px; /* Remove default padding */
+}
+
+/* Splitter */
+QSplitter::handle {
+    background-color: #555555; /* Handle color */
+    border: none;
+}
+QSplitter::handle:horizontal {
+    width: 3px;
+}
+QSplitter::handle:vertical {
+    height: 3px;
+}
+QSplitter::handle:pressed {
+    background-color: #777777;
+}
+
+/* Status Bar */
+QStatusBar {
+    background-color: #323232;
+    color: #cccccc;
+    border-top: 1px solid #555555;
+}
+QStatusBar::item {
+    border: none; /* Remove borders between items */
+}
+
+/* Tab Widget (If you chose tabs instead of splitter) */
+QTabWidget::pane {
+    border: 1px solid #444444;
+    background-color: #2b2b2b;
+}
+
+QTabBar::tab {
+    background: #323232;
+    color: #bbbbbb;
+    border: 1px solid #444444;
+    border-bottom: none; /* Important */
+    padding: 5px 10px;
+    margin-right: 2px;
+     border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+}
+
+QTabBar::tab:selected {
+    background: #2b2b2b; /* Match pane background */
+    color: #ffffff;
+    font-weight: bold;
+    border-color: #444444;
+ }
+
+QTabBar::tab:!selected {
+    margin-top: 2px; /* Make non-selected tabs slightly lower */
+}
+QTabBar::tab:hover {
+    background: #3f3f3f;
+}

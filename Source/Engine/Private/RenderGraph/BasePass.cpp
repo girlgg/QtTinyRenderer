@@ -110,24 +110,6 @@ void BasePass::setup(RGBuilder &builder) {
         return;
     }
     qInfo() << "  Setup RenderTarget: 'BasePassRT' using BaseColor and DepthStencil";
-    QVector<QRhiShaderResourceBinding> bindingsLayout = {
-        // Camera UBO
-        QRhiShaderResourceBinding::uniformBuffer(
-            0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, nullptr),
-        // Lighting UBO
-        QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, nullptr),
-        // Albedo Texture + Sampler
-        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr),
-        // Instance UBO
-        QRhiShaderResourceBinding::uniformBuffer(3, QRhiShaderResourceBinding::VertexStage, nullptr, 0,
-                                                 mInstanceBlockAlignedSize)
-    };
-    mBaseSrbLayoutRef = builder.setupShaderResourceBindings("BasePipelineSRBLayout", bindingsLayout);
-    if (!mBaseSrbLayoutRef.isValid()) {
-        qCritical("BasePass::setup - Failed to setup SRB Layout 'BasePassSRBLayout'.");
-        return;
-    }
-    qInfo() << "  Setup SRB Layout: 'BasePassSRBLayout'";
     // --- 设置 Pipeline 状态 ---
     const quint32 vertexStride = sizeof(VertexData);
     QRhiVertexInputLayout inputLayout;
@@ -135,22 +117,52 @@ void BasePass::setup(RGBuilder &builder) {
     inputLayout.setAttributes({
         QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float3, offsetof(VertexData, position)),
         QRhiVertexInputAttribute(0, 1, QRhiVertexInputAttribute::Float3, offsetof(VertexData, normal)),
-        QRhiVertexInputAttribute(0, 2, QRhiVertexInputAttribute::Float2, offsetof(VertexData, texCoord))
+        QRhiVertexInputAttribute(0, 2, QRhiVertexInputAttribute::Float2, offsetof(VertexData, texCoord)),
+        QRhiVertexInputAttribute(0, 3, QRhiVertexInputAttribute::Float3, offsetof(VertexData, tangent))
     });
-    qInfo() << "  Setup Vertex Input Layout.";
+    qInfo() << "  Setup Vertex Input Layout with Tangent.";
 
     // Load Shaders
-    ShaderBundle::getInstance()->loadShader("Shaders/baseGeo", {
-                                                {":/shaders/baseGeo.vert.qsb", QRhiShaderStage::Vertex},
-                                                {":/shaders/baseGeo.frag.qsb", QRhiShaderStage::Fragment}
+    ShaderBundle::getInstance()->loadShader("Shaders/pbr", {
+                                                {":/shaders/pbr.vert.qsb", QRhiShaderStage::Vertex},
+                                                {":/shaders/pbr.frag.qsb", QRhiShaderStage::Fragment}
                                             });
-    QRhiShaderStage vs = ShaderBundle::getInstance()->getShaderStage("Shaders/baseGeo", QRhiShaderStage::Vertex);
-    QRhiShaderStage fs = ShaderBundle::getInstance()->getShaderStage("Shaders/baseGeo", QRhiShaderStage::Fragment);
+    QRhiShaderStage vs = ShaderBundle::getInstance()->getShaderStage("Shaders/pbr", QRhiShaderStage::Vertex);
+    QRhiShaderStage fs = ShaderBundle::getInstance()->getShaderStage("Shaders/pbr", QRhiShaderStage::Fragment);
     if (!vs.shader().isValid() || !fs.shader().isValid()) {
         qCritical("BasePass::setup - Failed to load base shaders.");
         return;
     }
-    qInfo() << "  Loaded Shaders: 'Shaders/baseGeo'";
+    qInfo() << "  Loaded Shaders: 'Shaders/pbr'";
+
+    // --- SRB Layout (Shader Resource Bindings) ---
+    QVector bindingsLayout = {
+        // Binding 0: Camera UBO (VS+FS)
+        QRhiShaderResourceBinding::uniformBuffer(
+            0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, nullptr),
+        // Binding 1: Lighting UBO (FS)
+        QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, nullptr),
+        // Binding 2: Albedo Texture + Sampler (FS)
+        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr),
+        // Binding 3: Instance UBO (VS) - Dynamic Offset
+        QRhiShaderResourceBinding::uniformBuffer(3, QRhiShaderResourceBinding::VertexStage, nullptr, 0,
+                                                 mInstanceBlockAlignedSize),
+        // Binding 4: Normal Map + Sampler
+        QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr),
+        // Binding 5: Metallic/Roughness Map + Sampler
+        QRhiShaderResourceBinding::sampledTexture(5, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr),
+        // Binding 6: Ambient Occlusion Map + Sampler
+        QRhiShaderResourceBinding::sampledTexture(6, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr),
+        // Binding 7: Emissive Map + Sampler
+        QRhiShaderResourceBinding::sampledTexture(7, QRhiShaderResourceBinding::FragmentStage, nullptr, nullptr)
+    };
+
+    mBaseSrbLayoutRef = builder.setupShaderResourceBindings("PbrPipelineSRBLayout", bindingsLayout);
+    if (!mBaseSrbLayoutRef.isValid()) {
+        qCritical("BasePass::setup - Failed to setup SRB Layout 'PbrPipelineSRBLayout'.");
+        return;
+    }
+    qInfo() << "  Setup SRB Layout: 'PbrPipelineSRBLayout'";
 
     mPipelineRef = builder.setupGraphicsPipeline("BasePipeline",
                                                  mBaseSrbLayoutRef,
@@ -390,19 +402,47 @@ void BasePass::execute(QRhiCommandBuffer *cmdBuffer) {
                 continue;
             }
 
-            RhiTextureGpuData *albedoTexGpu = mResourceManager->getTextureGpuData(matGpu->albedoId);
-            if (!albedoTexGpu || !albedoTexGpu->ready || !albedoTexGpu->texture) {
-                qWarning(
-                    "BasePass::execute [%s] - Albedo texture '%s' for material '%s' not ready/found. Using default.",
-                    qPrintable(name()), qPrintable(matGpu->albedoId), qPrintable(materialId));
-                albedoTexGpu = mResourceManager->getTextureGpuData(DEFAULT_WHITE_TEXTURE_ID);
-                if (!albedoTexGpu || !albedoTexGpu->ready || !albedoTexGpu->texture) {
-                    qWarning(
-                        "BasePass::execute [%s] - Default white texture not available/ready. Skipping draw for material '%s'.",
-                        qPrintable(name()), qPrintable(materialId));
-                    totalInstancesDrawnThisPass += currentBatchInstanceCount;
-                    continue;
+            auto getTexOrDefault = [&](const QString &id, const QString &defaultId) -> RhiTextureGpuData * {
+                RhiTextureGpuData *texData = mResourceManager->getTextureGpuData(id);
+                if (texData && texData->ready && texData->texture) {
+                    return texData;
                 }
+                qDebug() << "BasePass: Texture" << id << "not ready or found, using default" << defaultId;
+                RhiTextureGpuData *defaultTexData = mResourceManager->getTextureGpuData(defaultId);
+                if (!defaultTexData || !defaultTexData->ready || !defaultTexData->texture) {
+                    qWarning() << "BasePass: Default texture" << defaultId << "is also not ready!";
+                    if (defaultId != DEFAULT_WHITE_TEXTURE_ID) {
+                        defaultTexData = mResourceManager->getTextureGpuData(DEFAULT_WHITE_TEXTURE_ID);
+                        if (!defaultTexData || !defaultTexData->ready || !defaultTexData->texture) {
+                            qCritical("BasePass: CRITICAL - Default white texture not ready!");
+                            return nullptr;
+                        }
+                    } else {
+                        qCritical("BasePass: CRITICAL - Default white texture not ready!");
+                        return nullptr;
+                    }
+                }
+                return defaultTexData;
+            };
+
+            RhiTextureGpuData *albedoTexGpu = getTexOrDefault(matGpu->albedoId, DEFAULT_WHITE_TEXTURE_ID);
+            RhiTextureGpuData *normalTexGpu = getTexOrDefault(matGpu->normalId, DEFAULT_NORMAL_MAP_ID);
+            RhiTextureGpuData *metalRoughTexGpu = getTexOrDefault(matGpu->metallicRoughnessId,
+                                                                  DEFAULT_METALROUGH_TEXTURE_ID);
+            RhiTextureGpuData *aoTexGpu = getTexOrDefault(matGpu->aoId, DEFAULT_WHITE_TEXTURE_ID);
+            RhiTextureGpuData *emissiveTexGpu = getTexOrDefault(matGpu->emissiveId, DEFAULT_BLACK_TEXTURE_ID);
+
+            if (!albedoTexGpu) {
+                qWarning(
+                    "BasePass::execute [%s] - Could not get even default Albedo texture for material '%s'. Skipping draw.",
+                    qPrintable(name()), qPrintable(materialId));
+                totalInstancesDrawnThisPass += currentBatchInstanceCount;
+                continue;
+            }
+            if (!normalTexGpu || !metalRoughTexGpu || !aoTexGpu || !emissiveTexGpu) {
+                qWarning(
+                    "BasePass::execute [%s] - Failed to get one or more default textures for material '%s'. Draw might be incorrect.",
+                    qPrintable(name()), qPrintable(materialId));
             }
 
             QScopedPointer<QRhiShaderResourceBindings> drawSrb(mRhi->newShaderResourceBindings());
@@ -414,16 +454,30 @@ void BasePass::execute(QRhiCommandBuffer *cmdBuffer) {
             }
             if (currentBatchInstanceCount == 0) continue;
             drawSrb->setBindings({
+                // Binding 0: Camera UBO
                 QRhiShaderResourceBinding::uniformBuffer(
                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, cameraUbo),
+                // Binding 1: Lighting UBO
                 QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, lightingUbo),
+                // Binding 2: Albedo Map
                 QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
                                                           albedoTexGpu->texture.get(), defaultSampler),
-                QRhiShaderResourceBinding::uniformBuffer(3,
-                                                         QRhiShaderResourceBinding::VertexStage,
-                                                         instanceUbo,
+                // Binding 3: Instance UBO (Dynamic Offset)
+                QRhiShaderResourceBinding::uniformBuffer(3, QRhiShaderResourceBinding::VertexStage, instanceUbo,
                                                          totalInstancesDrawnThisPass * mInstanceBlockAlignedSize,
-                                                         currentBatchInstanceCount * mInstanceBlockAlignedSize)
+                                                         currentBatchInstanceCount * mInstanceBlockAlignedSize),
+                // Binding 4: Normal Map
+                QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::FragmentStage,
+                                                          normalTexGpu->texture.get(), defaultSampler),
+                // Binding 5: Metallic/Roughness Map
+                QRhiShaderResourceBinding::sampledTexture(5, QRhiShaderResourceBinding::FragmentStage,
+                                                          metalRoughTexGpu->texture.get(), defaultSampler),
+                // Binding 6: AO Map
+                QRhiShaderResourceBinding::sampledTexture(6, QRhiShaderResourceBinding::FragmentStage,
+                                                          aoTexGpu->texture.get(), defaultSampler),
+                // Binding 7: Emissive Map
+                QRhiShaderResourceBinding::sampledTexture(7, QRhiShaderResourceBinding::FragmentStage,
+                                                          emissiveTexGpu->texture.get(), defaultSampler)
             });
             if (!drawSrb->create()) {
                 qWarning("BasePass::execute [%s] - Failed to create draw SRB for mesh '%s', material '%s'.",
@@ -519,17 +573,17 @@ void BasePass::updateUniforms(QRhiResourceUpdateBatch *batch) {
     memset(&lightData, 0, sizeof(LightingUniformBlock));
     int pointLightCount = 0;
     bool dirLightSet = false;
+
     for (EntityID entity: mWorld->view<LightComponent, TransformComponent>()) {
         auto *lightComp = mWorld->getComponent<LightComponent>(entity);
         auto *lightTf = mWorld->getComponent<TransformComponent>(entity);
         if (!lightComp || !lightTf) continue;
+
         switch (lightComp->type) {
             case LightType::Directional:
                 if (!dirLightSet) {
                     lightData.dirLight.direction = lightTf->rotation().rotatedVector({0, 0, -1}).normalized();
-                    lightData.dirLight.ambient = lightComp->ambient * lightComp->intensity;
-                    lightData.dirLight.diffuse = lightComp->color * lightComp->intensity;
-                    lightData.dirLight.specular = lightComp->specular * lightComp->intensity;
+                    lightData.dirLight.color = lightComp->color * lightComp->intensity;
                     lightData.dirLight.enabled = 1;
                     dirLightSet = true;
                 } else {
@@ -540,12 +594,10 @@ void BasePass::updateUniforms(QRhiResourceUpdateBatch *batch) {
                 if (pointLightCount < MAX_POINT_LIGHTS) {
                     auto &pl = lightData.pointLights[pointLightCount];
                     pl.position = lightTf->position();
-                    pl.ambient = lightComp->ambient * lightComp->intensity;
-                    pl.diffuse = lightComp->color * lightComp->intensity;
-                    pl.specular = lightComp->specular * lightComp->intensity;
-                    pl.attenuation = QVector3D(lightComp->constantAttenuation,
-                                               lightComp->linearAttenuation,
-                                               lightComp->quadraticAttenuation);
+                    pl.color = lightComp->color * lightComp->intensity;
+                    pl.constant = lightComp->constantAttenuation;
+                    pl.linear = lightComp->linearAttenuation;
+                    pl.quadratic = lightComp->quadraticAttenuation;
                     pointLightCount++;
                 } else {
                     qWarning("BasePass::updateUniforms - Exceeded maximum point lights (%d).", MAX_POINT_LIGHTS);
@@ -554,6 +606,9 @@ void BasePass::updateUniforms(QRhiResourceUpdateBatch *batch) {
         }
     }
     lightData.numPointLights = pointLightCount;
+    if (!dirLightSet) {
+        lightData.dirLight.enabled = 0;
+    }
     batch->updateDynamicBuffer(mLightingUboRef.get(), 0, sizeof(LightingUniformBlock), &lightData);
 }
 

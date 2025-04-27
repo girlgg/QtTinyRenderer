@@ -6,11 +6,6 @@
 #include "CommonRender.h"
 
 struct MaterialComponent : Component {
-    // float shininess = 32.0f;
-    // float roughness = 0.5f;
-    // float metallic = 0.1f;
-    // bool rhiDataDirty = true;
-
     // PBR Parameters
     QVector3D albedoFactor = {1.0f, 1.0f, 1.0f};
     float metallicFactor = 0.1f;

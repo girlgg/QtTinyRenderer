@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+    <author/>
+    <comment/>
+    <exportmacro/>
+    <class>LightEditor</class>
+    <widget class="QWidget" name="LightEditor">
+        <property name="geometry">
+            <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>380</width>
+                <height>450</height>
+            </rect>
+        </property>
+        <property name="windowTitle">
+            <string>LightEditor</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_Main">
+            <item>
+                <widget class="QGroupBox" name="groupBoxDirectionalLight">
+                    <property name="title">
+                        <string>Directional Light</string>
+                    </property>
+                    <layout class="QFormLayout" name="formLayoutDir">
+                        <item row="0" column="0">
+                            <widget class="QLabel" name="labelDirColor">
+                                <property name="text">
+                                    <string>Color:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="0" column="1">
+                            <widget class="QPushButton" name="buttonColorDir">
+                                <property name="text">
+                                    <string>Select Color</string>
+                                </property>
+                                <property name="autoFillBackground">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="flat">
+                                    <bool>false</bool>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="1" column="0">
+                            <widget class="QLabel" name="labelDirIntensity">
+                                <property name="text">
+                                    <string>Intensity:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="1" column="1">
+                            <widget class="QDoubleSpinBox" name="doubleSpinBoxDirIntensity">
+                                <property name="decimals">
+                                    <number>3</number>
+                                </property>
+                                <property name="minimum">
+                                    <double>0.0</double>
+                                </property>
+                                <property name="maximum">
+                                    <double>10000.0</double>
+                                </property>
+                                <property name="singleStep">
+                                    <double>0.1</double>
+                                </property>
+                                <property name="value">
+                                    <double>1.0</double>
+                                </property>
+                            </widget>
+                        </item>
+                    </layout>
+                </widget>
+            </item>
+            <item>
+                <widget class="QGroupBox" name="groupBoxPointLight">
+                    <property name="title">
+                        <string>Point Light</string>
+                    </property>
+                    <layout class="QFormLayout" name="formLayoutPoint">
+                        <item row="0" column="0">
+                            <widget class="QLabel" name="labelPointColor">
+                                <property name="text">
+                                    <string>Color:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="0" column="1">
+                            <widget class="QPushButton" name="buttonColorPoint">
+                                <property name="text">
+                                    <string>Select Color</string>
+                                </property>
+                                <property name="autoFillBackground">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="flat">
+                                    <bool>false</bool>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="1" column="0">
+                            <widget class="QLabel" name="labelPointIntensity">
+                                <property name="text">
+                                    <string>Intensity:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="1" column="1">
+                            <widget class="QDoubleSpinBox" name="doubleSpinBoxPointIntensity">
+                                <property name="decimals">
+                                    <number>3</number>
+                                </property>
+                                <property name="minimum">
+                                    <double>0.0</double>
+                                </property>
+                                <property name="maximum">
+                                    <double>10000.0</double>
+                                </property>
+                                <property name="singleStep">
+                                    <double>0.1</double>
+                                </property>
+                                <property name="value">
+                                    <double>1.0</double>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="2" column="0">
+                            <widget class="QLabel" name="labelPointConstant">
+                                <property name="text">
+                                    <string>Constant Atten.:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="2" column="1">
+                            <widget class="QDoubleSpinBox" name="doubleSpinBoxPointConstant">
+                                <property name="decimals">
+                                    <number>3</number>
+                                </property>
+                                <property name="minimum">
+                                    <double>0.0</double>
+                                </property>
+                                <property name="maximum">
+                                    <double>10.0</double>
+                                </property>
+                                <property name="singleStep">
+                                    <double>0.01</double>
+                                </property>
+                                <property name="value">
+                                    <double>1.0</double>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="3" column="0">
+                            <widget class="QLabel" name="labelPointLinear">
+                                <property name="text">
+                                    <string>Linear Atten.:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="3" column="1">
+                            <widget class="QDoubleSpinBox" name="doubleSpinBoxPointLinear">
+                                <property name="decimals">
+                                    <number>3</number>
+                                </property>
+                                <property name="minimum">
+                                    <double>0.0</double>
+                                </property>
+                                <property name="maximum">
+                                    <double>2.0</double>
+                                </property>
+                                <property name="singleStep">
+                                    <double>0.001</double>
+                                </property>
+                                <property name="value">
+                                    <double>0.09</double>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="4" column="0">
+                            <widget class="QLabel" name="labelPointQuadratic">
+                                <property name="text">
+                                    <string>Quadratic Atten.:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item row="4" column="1">
+                            <widget class="QDoubleSpinBox" name="doubleSpinBoxPointQuadratic">
+                                <property name="decimals">
+                                    <number>4</number>
+                                </property>
+                                <property name="minimum">
+                                    <double>0.0</double>
+                                </property>
+                                <property name="maximum">
+                                    <double>2.0</double>
+                                </property>
+                                <property name="singleStep">
+                                    <double>0.001</double>
+                                </property>
+                                <property name="value">
+                                    <double>0.032</double>
+                                </property>
+                            </widget>
+                        </item>
+                    </layout>
+                </widget>
+            </item>
+            <item>
+                <spacer name="verticalSpacer">
+                    <property name="orientation">
+                        <enum>Qt::Vertical</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                        <size>
+                            <width>20</width>
+                            <height>40</height>
+                        </size>
+                    </property>
+                    <property name="sizeType">
+                        <enum>QSizePolicy::Expanding</enum>
+                    </property>
+                </spacer>
+            </item>
+        </layout>
+    </widget>
+    <pixmapfunction/>
+    <connections/>
+</ui>

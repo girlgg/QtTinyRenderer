@@ -4,6 +4,9 @@
 
 #include "ECSCore.h"
 
+class LightEditor;
+class TextureEditor;
+enum class TextureType;
 struct TransformUpdateData;
 class ResourceManager;
 class World;
@@ -36,7 +39,19 @@ private slots:
 
     void updateTransformFromEditor(EntityID entityId, const TransformUpdateData &data);
 
+    void onTextureChanged(EntityID entityId, TextureType type, const QString &newPath);
+
     void onSceneInitialized();
+
+    void onCreateCube();
+
+    void onCreateSphere();
+
+    void onCreatePointLight();
+
+    void onCreateDirectionalLight();
+
+    void onSceneSelectionChanged(EntityID entityId);
 
 private:
     void setupModelImporter();
@@ -64,6 +79,10 @@ private:
     SceneTreeWidget *SceneTree{nullptr};
     EditorDockWidget *TransformDock{nullptr};
     TransformEditor *ObjectTransformEditor{nullptr};
+    EditorDockWidget *TextureDock = nullptr;
+    TextureEditor *ObjectTextureEditor = nullptr;
+    EditorDockWidget* mLightDock = nullptr;
+    LightEditor* mLightEditor = nullptr;
 
     ViewRenderWidget *ViewCentralWidget = nullptr;
 

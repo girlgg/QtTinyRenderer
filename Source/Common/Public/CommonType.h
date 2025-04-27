@@ -1,4 +1,6 @@
 #pragma once
+#include <QVector3D>
+#include <kernel/qmetatype.h>
 
 struct alignas(16) QVector3DAlign {
     QVector3D v;
@@ -28,6 +30,13 @@ struct alignas(16) QVector3DAlign {
         v -= rhs;
         return *this;
     }
-
-    // 等等……你可以添加更多你常用的 QVector3D 方法
 };
+
+enum class TextureType {
+    Albedo,
+    Normal,
+    MetallicRoughness,
+    AmbientOcclusion,
+    Emissive
+};
+Q_DECLARE_METATYPE(TextureType);

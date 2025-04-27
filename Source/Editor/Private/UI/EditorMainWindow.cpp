@@ -1,24 +1,31 @@
 #include <QToolButton>
 #include <QMenu>
 #include <QSplitter>
-#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QFileDialog>
-
+#include <QMessageBox>
 #include "UI/EditorMainWindow.h"
 
+#include "CommonType.h"
+#include "Component/LightComponent.h"
+#include "Component/MaterialComponent.h"
+#include "Component/MeshComponent.h"
+#include "Component/RenderableComponent.h"
 #include "Component/TransformComponent.h"
+#include "Resources/ResourceManager.h"
 #include "Scene/ModelImporter.h"
 #include "Scene/World.h"
 #include "UI/EdgesWidgets/EditorStatusBar.h"
 #include "UI/EdgesWidgets/EditorToolBar.h"
 #include "UI/EdgesWidgets/EditorDockWidget.h"
+#include "UI/EdgesWidgets/LightEditor.h"
 #include "UI/EdgesWidgets/TransformEditor.h"
 #include "UI/ViewWidgets/ViewWindow.h"
 #include "UI/EdgesWidgets/SceneTreeWidget.h"
+#include "UI/EdgesWidgets/TextureEditor.h"
 
 EditorMainWindow::EditorMainWindow(QWidget *parent) : QMainWindow(parent) {
-    resize(1080, 680);
+    resize(1280, 720);
 
     InitContent();
     if (ViewCentralWidget) {
@@ -36,23 +43,60 @@ EditorMainWindow::EditorMainWindow(QWidget *parent) : QMainWindow(parent) {
     if (ViewCentralWidget && BottomStatusBar) {
         connect(ViewCentralWidget, &ViewRenderWidget::fpsUpdated, BottomStatusBar, &EditorStatusBar::fpsUpdate);
     }
+    if (SceneTree) {
+        connect(SceneTree, &SceneTreeWidget::objectSelected, this, &EditorMainWindow::onSceneSelectionChanged);
+    }
 
     setupModelImporter();
 
     connect(ObjectImportAction, &QAction::triggered, this, &EditorMainWindow::onImportModel);
-
-    connect(SceneTree, &SceneTreeWidget::objectSelected,
-            ObjectTransformEditor, &TransformEditor::setCurrentObject);
-
-    connect(ObjectTransformEditor, &TransformEditor::transformChanged,
-            this, &EditorMainWindow::updateTransformFromEditor);
+    connect(CreateCubeAction, &QAction::triggered, this, &EditorMainWindow::onCreateCube);
+    connect(CreateSphereAction, &QAction::triggered, this, &EditorMainWindow::onCreateSphere);
+    connect(CreatePointLightAction, &QAction::triggered, this, &EditorMainWindow::onCreatePointLight);
+    connect(CreateDirectionalLightAction, &QAction::triggered, this, &EditorMainWindow::onCreateDirectionalLight);
 
     if (ObjectTransformEditor) {
+        connect(ObjectTransformEditor, &TransformEditor::transformChanged,
+                this, &EditorMainWindow::updateTransformFromEditor);
+    }
+    if (ObjectTextureEditor) {
+        connect(ObjectTextureEditor, &TextureEditor::textureChanged,
+                this, &EditorMainWindow::onTextureChanged);
+    }
+    if (ObjectTransformEditor && mWorld) {
         ObjectTransformEditor->setWorld(mWorld);
+    } else if (!ObjectTransformEditor) {
+        qWarning("ObjectTransformEditor is null during setup.");
+    } else {
+        qWarning("mWorld is null when setting TransformEditor world.");
     }
-    if (SceneTree) {
+
+    if (ObjectTextureEditor && mWorld && mResourceManager) {
+        ObjectTextureEditor->setWorld(mWorld);
+        ObjectTextureEditor->setResourceManager(mResourceManager);
+    } else if (!ObjectTextureEditor) {
+        qWarning("ObjectTextureEditor is null during setup.");
+    } else {
+        qWarning("mWorld or mResourceManager is null when setting TextureEditor world/rm.");
+    }
+
+    if (mLightEditor && mWorld) {
+        mLightEditor->setWorld(mWorld);
+    } else if (!mLightEditor) {
+        qWarning("mLightEditor is null during setup.");
+    } else {
+        qWarning("mWorld is null when setting LightEditor world.");
+    }
+
+    if (SceneTree && mWorld) {
         SceneTree->setWorld(mWorld);
+    } else if (!SceneTree) {
+        qWarning("SceneTree is null during setup.");
+    } else {
+        qWarning("mWorld is null when setting SceneTree world.");
     }
+
+    qInfo("EditorMainWindow Initialization Complete.");
 }
 
 EditorMainWindow::~EditorMainWindow() {
@@ -81,10 +125,13 @@ void EditorMainWindow::onModelImported() {
     if (SceneTree) {
         SceneTree->refreshSceneTree();
     }
+    if (ObjectTransformEditor) ObjectTransformEditor->setCurrentObject(INVALID_ENTITY);
+    if (ObjectTextureEditor) ObjectTextureEditor->setCurrentObject(INVALID_ENTITY);
 }
 
 void EditorMainWindow::onImportFailed(const QString &error) {
-    qCritical("Model import failed: {}", error);
+    qCritical() << "Model import failed:" << error;
+    QMessageBox::critical(this, tr("Import Error"), tr("Failed to import model:\n%1").arg(error));
 }
 
 void EditorMainWindow::updateTransformFromEditor(EntityID entityId, const TransformUpdateData &data) {
@@ -111,15 +158,209 @@ void EditorMainWindow::updateTransformFromEditor(EntityID entityId, const Transf
     } else {
         qWarning() << "EditorMainWindow::updateTransformFromEditor - Could not find TransformComponent for entity ID:"
                 << entityId;
+        if (ObjectTransformEditor) ObjectTransformEditor->setCurrentObject(INVALID_ENTITY);
+        if (ObjectTextureEditor) ObjectTextureEditor->setCurrentObject(INVALID_ENTITY);
     }
 }
 
+void EditorMainWindow::onTextureChanged(EntityID entityId, TextureType type, const QString &newPath) {
+    if (!mWorld || !mResourceManager) {
+        qWarning("EditorMainWindow::onTextureChanged - World or ResourceManager is null.");
+        return;
+    }
+    if (entityId == INVALID_ENTITY) {
+        qWarning("EditorMainWindow::onTextureChanged - Invalid entity ID.");
+        return;
+    }
+
+    MaterialComponent *matComp = mWorld->getComponent<MaterialComponent>(entityId);
+    if (!matComp) {
+        qWarning() << "EditorMainWindow::onTextureChanged - Entity" << entityId << "does not have a MaterialComponent.";
+        if (ObjectTextureEditor) ObjectTextureEditor->updateUI();
+        return;
+    }
+
+    qInfo() << "EditorMainWindow: Updating texture for Entity" << entityId << "Type:" << static_cast<int>(type) <<
+            "Path:" << newPath;
+
+    MaterialComponent updatedMatComp = *matComp;
+    QString oldMaterialKey = mResourceManager->generateMaterialCacheKey(matComp);
+
+    switch (type) {
+        case TextureType::Albedo: updatedMatComp.albedoMapResourceId = newPath;
+            break;
+        case TextureType::Normal: updatedMatComp.normalMapResourceId = newPath;
+            break;
+        case TextureType::MetallicRoughness: updatedMatComp.metallicRoughnessMapResourceId = newPath;
+            break;
+        case TextureType::AmbientOcclusion: updatedMatComp.ambientOcclusionMapResourceId = newPath;
+            break;
+        case TextureType::Emissive: updatedMatComp.emissiveMapResourceId = newPath;
+            break;
+        default:
+            qWarning() << "Unknown texture type in onTextureChanged";
+            return;
+    }
+
+    QString newMaterialCacheKey = mResourceManager->generateMaterialCacheKey(&updatedMatComp);
+    qInfo() << " Old Material Key:" << oldMaterialKey;
+    qInfo() << " New Material Key:" << newMaterialCacheKey;
+
+    if (!mResourceManager->getMaterialGpuData(newMaterialCacheKey)) {
+        qInfo() << "New material configuration (key:" << newMaterialCacheKey << ") not found. Loading material...";
+        mResourceManager->loadMaterial(newMaterialCacheKey, &updatedMatComp);
+    } else {
+        qInfo() << "New material configuration (key:" << newMaterialCacheKey << ") already cached.";
+    }
+
+    switch (type) {
+        case TextureType::Albedo: matComp->albedoMapResourceId = newPath;
+            break;
+        case TextureType::Normal: matComp->normalMapResourceId = newPath;
+            break;
+        case TextureType::MetallicRoughness: matComp->metallicRoughnessMapResourceId = newPath;
+            break;
+        case TextureType::AmbientOcclusion: matComp->ambientOcclusionMapResourceId = newPath;
+            break;
+        case TextureType::Emissive: matComp->emissiveMapResourceId = newPath;
+            break;
+    }
+
+    qInfo() << "Entity" << entityId << "MaterialComponent updated.";
+}
+
 void EditorMainWindow::onSceneInitialized() {
-    qInfo("Editor: Received sceneInitialized signal. Refreshing scene tree.");
     if (SceneTree) {
         SceneTree->refreshSceneTree();
     } else {
         qWarning("Editor: Cannot refresh scene tree, SceneTree widget is null.");
+    }
+    onSceneSelectionChanged(INVALID_ENTITY);
+    if (SceneTree) {
+        SceneTree->clearSelection();
+    }
+}
+
+void EditorMainWindow::onCreateCube() {
+    if (!mWorld || !mResourceManager) {
+        qWarning("Cannot create cube: World or ResourceManager is null.");
+        return;
+    }
+
+    if (!mResourceManager->getMeshGpuData(BUILTIN_CUBE_MESH_ID)) {
+        mResourceManager->loadMeshFromData(BUILTIN_CUBE_MESH_ID, DEFAULT_CUBE_VERTICES, DEFAULT_CUBE_INDICES);
+    }
+
+    EntityID entity = mWorld->createEntity();
+    mWorld->addComponent<TransformComponent>(entity, {});
+    mWorld->addComponent<MeshComponent>(entity, {});
+    mWorld->addComponent<RenderableComponent>(entity, {});
+    mWorld->addComponent<MaterialComponent>(entity, {{}});
+
+    MaterialComponent *matComp = mWorld->getComponent<MaterialComponent>(entity);
+    matComp->albedoMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
+    matComp->normalMapResourceId = DEFAULT_NORMAL_MAP_ID;
+    matComp->metallicRoughnessMapResourceId = DEFAULT_METALROUGH_TEXTURE_ID;
+    matComp->ambientOcclusionMapResourceId = DEFAULT_WHITE_TEXTURE_ID;
+    matComp->emissiveMapResourceId = DEFAULT_BLACK_TEXTURE_ID;
+
+    matComp->metallicFactor = 0.1f;
+    matComp->roughnessFactor = 0.8f;
+    matComp->albedoFactor = {1.0f, 1.0f, 1.0f};
+    matComp->aoStrength = 1.0f;
+    matComp->emissiveFactor = {0.0f, 0.0f, 0.0f};
+
+    MaterialComponent *mat = mWorld->getComponent<MaterialComponent>(entity);
+    mat->albedoMapResourceId = ":/img/Images/container2.png";
+
+    if (SceneTree) {
+        SceneTree->refreshSceneTree();
+    }
+}
+
+void EditorMainWindow::onCreateSphere() {
+}
+
+void EditorMainWindow::onCreatePointLight() {
+    if (!mWorld) return;
+    EntityID entity = mWorld->createEntity();
+    mWorld->addComponent<TransformComponent>(entity, {});
+    mWorld->addComponent<LightComponent>(entity, {
+                                             {}, LightType::Point, {1.0f, 1.0f, 1.0f}, 1.0f,
+                                             {}, 1.0f, 0.09f, 0.032f,
+                                             {}, {}, {}, {}
+                                         });
+    // mWorld->addComponent<NameComponent>(entity, {"Point Light"});
+
+    if (SceneTree) {
+        SceneTree->refreshSceneTree();
+    }
+    qInfo() << "Created Point Light Entity:" << entity;
+}
+
+void EditorMainWindow::onCreateDirectionalLight() {
+    if (!mWorld) return;
+    EntityID entity = mWorld->createEntity();
+    TransformComponent tf;
+    tf.setRotation(QQuaternion::fromEulerAngles(-45.0f, -45.0f, 0.0f));
+    mWorld->addComponent<TransformComponent>(entity, tf);
+    mWorld->addComponent<LightComponent>(entity, {
+                                             {}, LightType::Directional, {1.0f, 1.0f, 1.0f}, 1.0f,
+                                             {}, 1, 0, 0, {},
+                                             {0.2f, 0.2f, 0.2f}, {0.5f, 0.5f, 0.5f},
+                                             {1.0f, 1.0f, 1.0f}
+                                         });
+    // mWorld->addComponent<NameComponent>(entity, {"Directional Light"});
+    if (SceneTree) {
+        SceneTree->refreshSceneTree();
+    }
+    qInfo() << "Created Directional Light Entity:" << entity;
+}
+
+void EditorMainWindow::onSceneSelectionChanged(EntityID entityId) {
+    qDebug() << "EditorMainWindow::onSceneSelectionChanged - EntityID:" << entityId;
+
+    bool hasTransform = false;
+    bool isMeshMaterialObject = false;
+    bool isLightObject = false;
+
+    if (mWorld && entityId != INVALID_ENTITY) {
+        hasTransform = mWorld->hasComponent<TransformComponent>(entityId);
+        isLightObject = mWorld->hasComponent<LightComponent>(entityId);
+
+        if (!isLightObject && hasTransform) {
+            isMeshMaterialObject = mWorld->hasComponent<MeshComponent>(entityId) &&
+                                   mWorld->hasComponent<MaterialComponent>(entityId);
+            if (isMeshMaterialObject) {
+                qDebug() << "  Entity" << entityId << "is eligible for Material Editor.";
+            }
+        } else if (isLightObject) {
+             qDebug() << "  Entity" << entityId << "is eligible for Light Editor.";
+        }
+    } else {
+         qDebug() << "  Invalid entity ID or null World.";
+    }
+
+    if (ObjectTransformEditor) {
+        ObjectTransformEditor->setCurrentObject(hasTransform ? entityId : INVALID_ENTITY);
+        ObjectTransformEditor->setEnabled(hasTransform);
+        qDebug() << "  Transform Editor Set Enabled:" << hasTransform;
+    }
+
+    if (ObjectTextureEditor && TextureDock) {
+        ObjectTextureEditor->setCurrentObject(isMeshMaterialObject ? entityId : INVALID_ENTITY);
+        TextureDock->setVisible(isMeshMaterialObject);
+        qDebug() << "  Texture Dock Set Visible:" << isMeshMaterialObject;
+    } else {
+        qWarning("ObjectTextureEditor or TextureDock is null!");
+    }
+
+    if (mLightEditor && mLightDock) {
+        mLightEditor->setCurrentObject(isLightObject ? entityId : INVALID_ENTITY);
+        mLightDock->setVisible(isLightObject);
+         qDebug() << "  Light Dock Set Visible:" << isLightObject;
+    } else {
+         qWarning("mLightEditor or mLightDock is null!");
     }
 }
 
@@ -138,7 +379,7 @@ void EditorMainWindow::InitEdgeLayout() {
     BottomStatusBar = new EditorStatusBar(this);
     this->setStatusBar(BottomStatusBar);
 
-    // // 创建工具栏
+    // 创建工具栏
     auto *toolBar = new EditorToolBar("工具栏", this);
     toolBar->setAllowedAreas(Qt::TopToolBarArea | Qt::BottomToolBarArea);
     toolBar->setToolBarSpacing(3);
@@ -170,40 +411,58 @@ void EditorMainWindow::InitEdgeLayout() {
     this->addToolBar(Qt::TopToolBarArea, toolBar);
 
     // 右侧面板
-    auto *rightSplitter = new QSplitter(Qt::Vertical, this);
+    auto *rightDock = new EditorDockWidget("Properties", this);
+    rightDock->setObjectName("PropertiesDock");
+    rightDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    rightDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    auto *rightPanelWidget = new QWidget(rightDock);
+    auto *rightPanelLayout = new QVBoxLayout(rightPanelWidget);
+    rightPanelLayout->setContentsMargins(0, 0, 0, 0);
+    rightPanelWidget->setLayout(rightPanelLayout);
 
-    // 上方 - 场景物体树
-    SceneTreeDock = new EditorDockWidget("场景物体树", this);
-    SceneTree = new SceneTreeWidget(this);
-    SceneTreeDock->setWidget(SceneTree);
+    auto *rightSplitter = new QSplitter(Qt::Vertical, rightPanelWidget);
 
-    // 下方 - 变换编辑器
-    TransformDock = new EditorDockWidget("变换编辑器", this);
-    ObjectTransformEditor = new TransformEditor(this);
-    TransformDock->setWidget(ObjectTransformEditor);
+    SceneTree = new SceneTreeWidget(rightSplitter);
 
-    connect(SceneTree, &SceneTreeWidget::objectSelected,
-            ObjectTransformEditor, &TransformEditor::setCurrentObject);
+    QWidget *transformTextureContainer = new QWidget(rightSplitter);
+    QVBoxLayout *transformTextureLayout = new QVBoxLayout(transformTextureContainer);
+    transformTextureLayout->setContentsMargins(0, 0, 0, 0);
+    transformTextureContainer->setLayout(transformTextureLayout);
 
-    // 将两个dock添加到分割器中
-    rightSplitter->addWidget(SceneTreeDock);
-    rightSplitter->addWidget(TransformDock);
+    ObjectTransformEditor = new TransformEditor(transformTextureContainer);
+    TextureDock = new EditorDockWidget("Material", transformTextureContainer);
+    TextureDock->setObjectName("TextureEditorDock");
+    TextureDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    ObjectTextureEditor = new TextureEditor(TextureDock);
+    TextureDock->setWidget(ObjectTextureEditor);
 
-    // 设置分割比例
-    rightSplitter->setStretchFactor(0, 2);
-    rightSplitter->setStretchFactor(1, 1);
+    transformTextureLayout->addWidget(ObjectTransformEditor);
+    transformTextureLayout->addWidget(TextureDock);
+    transformTextureLayout->setStretchFactor(ObjectTransformEditor, 0);
+    transformTextureLayout->setStretchFactor(TextureDock, 1);
 
-    // 创建右侧dock容器
-    auto *rightDockContainer = new QWidget(this);
-    auto *rightLayout = new QVBoxLayout(rightDockContainer);
-    rightLayout->addWidget(rightSplitter);
-    rightDockContainer->setLayout(rightLayout);
+    rightSplitter->addWidget(SceneTree);
+    rightSplitter->addWidget(transformTextureContainer);
+    rightSplitter->setStretchFactor(0, 1);
+    rightSplitter->setStretchFactor(1, 2);
 
-    // 添加到主窗口右侧
-    auto *rightDock = new EditorDockWidget("右侧面板", this);
-    rightDock->setWidget(rightDockContainer);
+    rightPanelLayout->addWidget(rightSplitter);
+    rightDock->setWidget(rightPanelWidget);
+
+    mLightDock = new EditorDockWidget("Light", this);
+    mLightDock->setObjectName("LightEditorDock");
+    mLightDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    mLightDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    mLightEditor = new LightEditor(mLightDock);
+    mLightDock->setWidget(mLightEditor);
+
     this->addDockWidget(Qt::RightDockWidgetArea, rightDock);
-    resizeDocks({rightDock}, {300}, Qt::Horizontal);
+    this->addDockWidget(Qt::RightDockWidgetArea, mLightDock);
+
+    TextureDock->setVisible(false);
+    mLightDock->setVisible(false);
+
+    resizeDocks({rightDock, mLightDock}, {350, 200}, Qt::Horizontal);
 }
 
 void EditorMainWindow::InitContent() {

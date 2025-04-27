@@ -35,9 +35,9 @@ public:
 
 public slots:
     void setCurrentObject(EntityID objId);
+    void updateFromSceneManager();
 private slots:
     void updateTransform();
-    void updateFromSceneManager();
 
 signals:
     void transformChanged(EntityID objId, const TransformUpdateData& data);

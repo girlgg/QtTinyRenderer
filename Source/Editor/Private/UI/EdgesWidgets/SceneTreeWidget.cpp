@@ -1,6 +1,7 @@
 #include "UI/EdgesWidgets/SceneTreeWidget.h"
 
 #include "ECSCore.h"
+#include "Component/LightComponent.h"
 #include "Component/RenderableComponent.h"
 #include "Component/TransformComponent.h"
 #include "Scene/World.h"
@@ -23,28 +24,53 @@ void SceneTreeWidget::refreshSceneTree() {
         return;
     }
 
+    blockSignals(true);
+    clearSelection();
+
+    QHash<EntityID, QTreeWidgetItem *> entityItemMap;
+
     for (EntityID entity: mWorld->view<RenderableComponent, TransformComponent>()) {
-        auto *item = new QTreeWidgetItem(this);
+        auto *rc = mWorld->getComponent<RenderableComponent>(entity);
+        if (rc && rc->isVisible) {
+            auto *item = new QTreeWidgetItem(this);
 
-        // NameComponent* nameComp = mWorld->getComponent<NameComponent>(entity);
-        // if (nameComp && !nameComp->name.isEmpty()) {
-        //     item->setText(0, QString("%1 (ID: %2)").arg(nameComp->name).arg(entity));
-        // } else {
-        item->setText(0, QString("Entity (ID: %1)").arg(entity));
-        // }
+            item->setText(0, QString("Entity (ID: %1)").arg(entity));
 
-        item->setData(0, Qt::UserRole, QVariant::fromValue(entity)); // Store EntityID
+            item->setData(0, Qt::UserRole, QVariant::fromValue(entity));
 
-        // Hierarchy (Advanced):
-        // entityItemMap[entity] = item;
-        // ParentComponent* parentComp = mWorld->getComponent<ParentComponent>(entity);
-        // if (parentComp && entityItemMap.contains(parentComp->parentEntity)) {
-        //     entityItemMap[parentComp->parentEntity]->addChild(item);
-        // } else {
-        //     addTopLevelItem(item);
-        // }
-        addTopLevelItem(item);
+            addTopLevelItem(item);
+            entityItemMap[entity] = item;
+        }
     }
+
+    for (EntityID entity: mWorld->view<LightComponent, TransformComponent>()) {
+        if (entityItemMap.contains(entity)) {
+            continue;
+        }
+
+        auto *lc = mWorld->getComponent<LightComponent>(entity);
+        if (lc) {
+            auto *item = new QTreeWidgetItem();
+
+            QString typeStr;
+            switch (lc->type) {
+                case LightType::Point:
+                    typeStr = "Point Light";
+                    break;
+                case LightType::Directional:
+                    typeStr = "Directional Light";
+                    break;
+            }
+            item->setText(0, QString("%1 (ID: %2)").arg(typeStr).arg(entity));
+
+            item->setData(0, Qt::UserRole, QVariant::fromValue(entity));
+
+            addTopLevelItem(item);
+            entityItemMap[entity] = item;
+        }
+    }
+
+    blockSignals(false);
     qDebug() << "Scene tree refreshed with" << topLevelItemCount() << "items.";
 }
 

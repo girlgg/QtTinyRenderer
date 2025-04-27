@@ -92,7 +92,7 @@ private:
 template<typename PassType, typename... Args>
 PassType *RenderGraph::addPass(const QString &name, Args &&... inArgs) {
     // 检查是否已经有了pass
-    for (const auto &existingPass: qAsConst(mPasses)) {
+    for (const auto &existingPass: std::as_const(mPasses)) {
         if (existingPass && existingPass->name() == name) {
             qWarning("RenderGraph::addPass - Pass with name '%s' already exists.", qPrintable(name));
             if (auto castedPass = dynamic_cast<PassType *>(existingPass.get())) {
